@@ -1,3 +1,7 @@
 # Reece's Pages
 
-Here is where I'm putting some articles that I've written about programming which I think are interesting and potentially useful to share.
+Some articles I've written about programming which I think are interesting and potentially useful to share.
+
+## Contents
+
+- [Revisiting Stateful Metaprogramming in C++20](pages/stateful-metaprogramming-c%2B%2B20.md)
