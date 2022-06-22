@@ -1,0 +1,29 @@
+title: Reece's Pages
+description: Articles on software development and computer science
+
+author:
+  name: Reece Jones
+  email: "reece.jones131@gmail.com"
+
+timezone: Australia/Perth
+
+defaults:
+  -
+    scope:
+      path: _posts
+    values:
+      layout: post
+
+permalink: "/articles/:title"
+
+plugins:
+  - jekyll-remote-theme
+
+remote_theme: jekyll/minima
+
+minima:
+  skin: dark
+  date_format: "%Y %B %d"
+  social_links:
+    github: MC-DeltaT
+    linkedin: reece-jones-1327261a3

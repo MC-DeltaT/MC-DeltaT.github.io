@@ -1,6 +1,6 @@
-# Revisiting Stateful Metaprogramming in C++20
-
-Published: June 2022
+---
+title: Revisiting Stateful Metaprogramming in C++20
+---
 
 **Disclaimer**: Stateful metaprogramming is well-known as one of those things that almost certainly shouldn't be used in production code. Even in the best cases, its correctness is debatable. As such, this article is solely for purposes of personal curiosity.
 
