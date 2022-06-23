@@ -1,0 +1,8 @@
+$comment-colour: #777777;
+
+.highlight {
+    .err { color: unset; background-color: unset; }     // Syntax error
+    .c1 { color: $comment-colour; }     // Single line comment
+    .cm { color: $comment-colour; }     // Multiline comment
+    .cp { color: #808080; }     // Preprocessor directive
+}
