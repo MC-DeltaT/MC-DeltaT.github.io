@@ -1,11 +1,11 @@
 title: Reece's Pages
-description: Articles on software development and computer science
+description: Articles on things I find interesting
 
 author:
   name: Reece Jones
   email: "reece.jones131@gmail.com"
 
-timezone: Australia/Perth
+timezone: Australia/Sydney
 
 defaults:
   -
