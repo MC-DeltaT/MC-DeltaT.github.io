@@ -7,7 +7,7 @@ title: What 0 to 6 Months of Photography Has Taught Me
 **About six months ago, I began a journey with photography**. With absolutely zero photography knowledge, I read a web article on the very basics of digital cameras, bought a second hand entry-level DSLR (with kit lenses) and started taking photos.  
 Since then, photography has evolved into my primary hobby. My shots largely consist of near-to-mid ranges of plants, animals, and urban structures; long exposure night shots; some macros of miscellaneous subjects; and a few portraits. To date I've taken ~1500 shots, resulting in over 100 finished images which I felt were good enough to show others.
 
-Apart from that first web article, the majority of my understanding of the photographic process has some from good old trial and error, or my own research - for better, or for worse. This page is a collection of some of the bits of knowledge I've learnt and which have helped me improve as a photographer.
+Apart from that first web article, the majority of my understanding of the photographic process has come from good old trial and error, or my own research - for better, or for worse. This page is a collection of some of the bits of knowledge I've learnt and which have helped me improve as a photographer.
 
 Disclaimer: naturally, some of the knowledge is specific to my camera and the shots I like to take. By no means is this information meant to be authoritative. It's just my personal experience :)
 
