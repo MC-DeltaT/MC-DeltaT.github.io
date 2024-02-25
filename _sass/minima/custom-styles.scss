@@ -6,3 +6,12 @@ $comment-colour: #777777;
     .cm { color: $comment-colour; }     // Multiline comment
     .cp { color: #808080; }     // Preprocessor directive
 }
+
+img {
+    max-width: 100%;
+    max-height: 90vh;
+    margin-left: auto;
+    margin-right: auto;
+    padding-bottom: 6px;
+    display: block;
+}
