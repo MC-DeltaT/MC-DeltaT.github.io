@@ -9,7 +9,7 @@ Are you one of the developers who quake at thread safety? Or perhaps, despite le
 
 ## Do You Really Know Thread Safety?
 
-I consider thread safety to be one of the most misunderstood topics in C++. Why? Two reasons:
+I consider thread safety to be one of the most misunderstood topics in C++, for two reasons:
 
 1. Thread safety is complex and nuanced, so quality education material is hard to come by.
 2. There is so much nondeterminism (from the programmer's perspective) that it's easy to convince yourself you understand thread safety.
@@ -148,7 +148,7 @@ Now we will look at memory models as they function at the bare metal. By reading
 
 The brain of most computers is a "central processing unit" - or CPU for short. The bulk of the CPU's role is to perform logic and math operations - called "instructions" - on data. On most commodity hardware, data used by a computer while switched on is stored in main memory (RAM), accessible to the CPU via an electrical connection[^1]. Inside the CPU chip, there can be multiple "cores", which can independently execute instructions and access memory. Cores also have fast internal storage called "registers", which act like working out space for instructions.
 
-The purpose of a CPU's memory model is to define what happens with regards to multiple cores accessing the same main memory. For the discussion here, the "same main memory" means the same physical memory address, that is, the same physical circuits storing the same data. Generally, there is only one electrical connection from the CPU to main memory, so only one memory access can occur at one point in time. You might think this means thread safety becomes trivial, yet unfortunately that is not true. CPUs are complex constructions and have many tricks up their sleeves.
+The purpose of a CPU's memory model is to define what happens with regards to multiple cores accessing the same main memory. For the discussion here, the "same main memory" means the same physical memory address, that is, the same physical circuits storing the same data. Generally, there is only one electrical connection from the CPU to main memory, so only one access to memory can occur at one point in time. You might think this means thread safety becomes trivial, yet unfortunately that is not the case. CPUs are complex constructions and have many tricks up their sleeves.
 
 [^1]: This is a huge simplification, and you may point out that modern hardware does not strictly follow a Von Neumann architecture, but is a mixture of architectures. This is true, and adds to my point that hardware memory models are very complex.
 
@@ -158,16 +158,22 @@ Over time, CPU operating speeds have significantly outpaced the performance of m
 
 When loading data from main memory, the data is put into the cache first. If the CPU reads the same memory address again later, the cache provides the data quickly, rather than waiting to load from memory again. When the CPU writes data, it first goes into the cache in case it needs to be read soon. If at any point the cache can't fit any more data, previous data is evicted. When utilised effectively, cache enables the CPU to rarely wait for memory accesses and performance improves significantly.
 
-The existence of cache immediately raises problems for a CPU with multiple cores. If the same cache is shared between all cores, then it becomes difficult to obtain high performance. However, if each core has a separate cache, then cores could end up with different data for the same memory address! This problem is known as "cache coherency".  
+The existence of cache immediately raises problems for a CPU with multiple cores. If the same cache is shared between all cores, then it becomes difficult to obtain high performance. However, if each core has a separate cache, then cores could end up with different (cached) data for the same memory address! This problem is known as "cache coherency".  
 Clearly some thinking is required to determine how the cache system deals with concurrency, and this is one potential factor contributing to the memory model at the hardware level.
 
 ### Out of order execution
 
-TODO
+A fascinating aspect of modern CPU design is their knack for not executing instructions in the order the programmer specifies. Such design is known as "out of order execution" and came about to improve utilisation of available CPU resources, hence improving software performance. We won't dive into the details here, as this topic is somewhat involved, but the gist is that by reordering of instructions, throughtput is increased by finding an ordering which takes advantage of the free resources in the CPU at that time[^2]. Of course, the reordering must be done such that the correctness of the program is not affected.
+
+Memory access instructions may be reordered too; which is interesting, since memory is an external entity the CPU may not have perfect knowledge on. Often memory addresses are not known in advance. And a single CPU core may not know what memory accesses other cores are performing at the same time. Arbitrarily reordering memory accesses will heavily influence the correctness of data communication between cores, i.e. thread safety. At the same time, performance goals pressure CPU design towards increased reordering.  
+CPU designers have some control over what "correctness" means by way of memory models. The memory model will define what memory access reorderings are possible, depending on the chosen tradeoff with performance. Compilers and assembly writers must be aware of possible reorderings to ensure they use memory access instructions in an appropriate manner to produce the desired behaviour.
+
+[^2]: I have a more detailed introduction to out of order execution available [here](https://github.com/MC-DeltaT/cpu-performance-demos/tree/main/out-of-order-execution).
 
 ### Where's the memory model?
 
-At this point, you may be eager for a detailed explanation of a real hardware memory model, such as for x86. Unfortunately, we are not going to discuss that here. The reason is that as high level language programmers, we don't really need to know the specifics of a particular memory model. Some people claim, for example, that certain C++ constructs are required to enforce cache coherency on x86 - which is not true, because x86 hardware handles it for us. They have fallen victim to the trap of believing they understand the hardware memory model, and thus ignoring relevant information. What we really do need to know is the programming language's memory model, which we will explore next.
+At this point, you may be eager for an in-depth explanation of a real hardware memory model, such as for the ubiquitous x86 architecture. However, we are not going to discuss that here. While understanding hardware motivations is important, I argue knowing specifics is not important - and in fact, counterproductive - because as high level language programmers we should be focusing on software memory models. It is easy to fall victim to the trap of believing we understand the hardware memory model, thus ignoring relevant information. Some people claim, for example, that certain C++ constructs are required to enforce cache coherency on x86 - which is not true, because x86 cache hardware handles it for us. Further, others claim that out of order execution is a main component of thread safety on x86 - which is also not true, since most memory reorderings are disallowed on that architecture.  
+What we really do need to know is the programming language's memory model, which we will explore next.
 
 ## Memory Model - The Software Perspective
 
@@ -189,7 +195,9 @@ This is a classic "read-modify-write" operation which is the bread and butter of
 | 2    | Increment 0->1 | Increment 0->1 |
 | 3    | Write 1        | Write 1        |
 
-We thought we incremented `M` twice, but actually ended up with `M=1`! This is because nothing stops one thread reading the same original value while the other is busy doing something else. In order to prevent such a scenario, extra coordination is required. This coordination comes in different forms. The compiler might have to generate special CPU instructions. Or it might require guidance from the programmer.
+We thought we incremented `M` twice, but actually ended up with `M=1`! This is because nothing stops one thread reading the same original value while the other is busy doing something else. In order to prevent such a scenario, extra coordination is required. This coordination comes in different forms. The compiler might have to generate special CPU instructions, or it might require guidance from the programmer.
+
+### Compiler optimisations
 
 TODO: other subsections
 
