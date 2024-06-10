@@ -163,9 +163,9 @@ Clearly some thinking is required to determine how the cache system deals with c
 
 ### Out of order execution
 
-A fascinating aspect of modern CPU design is their knack for not executing instructions in the order the programmer specifies. Such design is known as "out of order execution" and came about to improve utilisation of available CPU resources, hence improving software performance. We won't dive into the details here, as this topic is somewhat involved, but the gist is that by reordering of instructions, throughtput is increased by finding an ordering which takes advantage of the free resources in the CPU at that time[^2]. Of course, the reordering must be done such that the correctness of the program is not affected.
+A fascinating aspect of modern CPU design is their knack for not executing instructions in the order the programmer specifies. Such design is known as "out of order execution" and came about to improve utilisation of available CPU resources, hence improving software performance. We won't dive into the complex details here, but the gist is that by reordering of instructions, throughtput is increased by finding an ordering which takes advantage of the free resources in the CPU at that time. Of course, the reordering must be done such that the correctness of the program is not affected.[^2]
 
-Memory access instructions may be reordered too; which is interesting, since memory is an external entity the CPU may not have perfect knowledge on. Often memory addresses are not known in advance. And a single CPU core may not know what memory accesses other cores are performing at the same time. Arbitrarily reordering memory accesses will heavily influence the correctness of data communication between cores, i.e. thread safety. At the same time, performance goals pressure CPU design towards increased reordering.  
+Memory access instructions may be reordered too, if desirable. This is interesting, since memory is an external entity the CPU may not have perfect knowledge on: often memory addresses are not known in advance; and a single CPU core may not know what memory accesses other cores are performing at the same time. Obviously, arbitrarily reordering memory accesses will heavily influence the correctness of data communication between cores, i.e. thread safety. At the same time, performance goals pressure CPU design towards increased reordering.  
 CPU designers have some control over what "correctness" means by way of memory models. The memory model will define what memory access reorderings are possible, depending on the chosen tradeoff with performance. Compilers and assembly writers must be aware of possible reorderings to ensure they use memory access instructions in an appropriate manner to produce the desired behaviour.
 
 [^2]: I have a more detailed introduction to out of order execution available [here](https://github.com/MC-DeltaT/cpu-performance-demos/tree/main/out-of-order-execution).
@@ -177,17 +177,21 @@ What we really do need to know is the programming language's memory model, which
 
 ## Memory Model - The Software Perspective
 
-TODO
+Programming languages vary greatly in how they approach memory and concurrency, depending on their design goals. Some languages pretend concurrency doesn't exist, while others embrace it in their core features. Likewise, some languages may force you deep into the weeds of memory management, and others do not even expose the concept of memory[^3]. Further, under the surface, compilers perform all sorts of magic to make code run on many hardware platforms and with high performance.
+
+Like a programming language's syntax defines what sequence of characters are legal, a language's memory model is a contract between the programmer and the compiler (and thus, hardware) on legal behaviour of concurrent memory accesses. In this section, we will see the factors which go into a programming language's memory model.
+
+[^3]: Some programming languages, particularly functional languages, do not have the concept of shared mutable memory. Thread safety is effectively "solved" in such languages.
 
 ### Read-modify-write operations
 
-Even with the most basic, naive hardware memory model, we can't just write programs which behave correctly with multiple threads active. Consider the this sequence of CPU instructions which a compiler might generate:
+Even with the most basic hardware memory model underneath us, we can't guilelessly write correct programs with multiple threads active. Consider the case of incrementing an integer in memory, which a compiler might translate to this sequence of CPU instructions:
 
 1. Read the value `V` of memory location `M` into a register `R`.
 2. Increment `R` by 1. I.e. `V = V + 1`.
 3. Write the new value of `V` in `R` back into memory location `M`.
 
-This is a classic "read-modify-write" operation which is the bread and butter of software. Read data from memory, do something do it, then write the result back to memory. Now, what happens if two threads execute this operation at the same time? Imagine `V` begins equal to 0.
+This is a classic "read-modify-write" operation and is the bread and butter of software. Read data from memory, do something do it, then write the result back to memory. Now, what happens if two threads execute this operation at the same time? Imagine `V` begins equal to 0.
 
 | Time | Thread 1       | Thread 2       |
 | ---- | -------------- | -------------- |
@@ -195,16 +199,79 @@ This is a classic "read-modify-write" operation which is the bread and butter of
 | 2    | Increment 0->1 | Increment 0->1 |
 | 3    | Write 1        | Write 1        |
 
-We thought we incremented `M` twice, but actually ended up with `M=1`! This is because nothing stops one thread reading the same original value while the other is busy doing something else. In order to prevent such a scenario, extra coordination is required. This coordination comes in different forms. The compiler might have to generate special CPU instructions, or it might require guidance from the programmer.
+We thought we incremented `M` twice, but actually ended up with `M=1`! This is because nothing stops one thread reading the same original value while the other is busy doing something else. This problem is known generally as a "data race", because the result depends on the threads "racing" each other to execute. In order to prevent such a scenario, extra coordination - known as "synchronisation" is required. This coordination comes in different forms, such as special CPU instructions, or language-level guidance from the programmer.
+
+In fact, data races are a fundamental problem in concurrency that exist beyond specifics of programming languages, compilers, and CPU hardware. If you think about it, *any* system where multiple entities are performing read-modify-write operations are subject to this problem!
 
 ### Compiler optimisations
 
-TODO: other subsections
+Languages like C++ are liked in part for their runtime speed, which is helped by the awesome optimisations done by compilers. Modern C/C++ compilers can be quite aggressive in rearranging the code we write into fast machine code. To paraphrase Herb Sutter in his memory model talk\[1\]: the compiler accepts our source code and gives us back the "code we meant to write" to yield optimal performance.
+
+The topic of code optimisation is huge and you could spend your whole career on it, but all we need to know here is the compiler will happily add, remove, and reorder memory accesses to improve performance. (Sound familiar? Yes, similar vein as out of order execution.) To illustrate, consider this simple function which performs math on some arrays:
+
+```c++
+float func(float const* a, float const* b, unsigned size) {
+    float result = 0;
+    for (unsigned i = 0; i < size; ++i) {
+        for (unsigned j = 0; j < size; ++j) {
+            result += a[i] * b[j];
+        }
+    }
+    return result;
+}
+```
+
+You may notice that `a[i]` accesses memory every iteration in the inner loop, yet `i` is not changing. The compiler could move the read of `a[i]` outside the inner loop and save the value in a register to be more efficient; something like this:
+
+```c++
+float func(float const* a, float const* b, unsigned size) {
+    float result = 0;
+    for (unsigned i = 0; i < size; ++i) {
+        float const a_i = a[i];
+        for (unsigned j = 0; j < size; ++j) {
+            result += a_i * b[j];
+        }
+    }
+    return result;
+}
+```
+
+Not only does this change reduce the number of instructions executed within the inner loop, it likely opens the door to other optimisations too.
+
+But wait! What if another thread updates `a[i]` while the inner loop is running? Then the result could be different with and without the optimisation. Perhaps you want the optimisation, or perhaps not - how should the compiler know? There is a tradeoff between freedom to optimise and simplicity for the programmer. Software memory models specify where the tradeoff is set, defining which optimisations the compiler may do and what assumptions the programmer may make surrounding memory access.
 
 ## The C++ Memory Model
 
+Hopefully by now, you have a good idea of what is at play behind the scenes of thread safety, and what motivates the existence of memory models. That means you are ready to tackle the tricky topic of the C++ memory model. Buckle up and get ready for some serious C++ knowledge.
+
+### A small history lesson
+
+Fun fact: C++ first standardised its memory model in C++11, over 25 years after the inception of the language. I might guess that it took so long, as many things do in C++, due to the huge variety of use cases and platforms on which it is run (although I have no evidence for this). Before C++11, the official language standard provided no guarantees on the behaviour of concurrent code. Of course people did write concurrent code before 2011, but correctness came from specific compilers and hardware platforms. That meant that code you wrote that worked on one machine may not work on another, and C++ didn't care. The pre-11 C++ standard dealt in terms of single threaded applications only.
+
+Naturally, it would be nice for the language to specify one way to go about concurrency which is efficient and portable across many systems, especially as multithreaded applications became more prevalent in consumer software. So, C++11 finally introduced one officialy memory model.[2]
+
+### C++11 memory model - overview
+
+As mentioned a few times so far, a memory model is a contract between a user and implementer. In the case of C++, the user is the programmer, and the implementer is the compiler plus CPU hardware. The memory model sets forth three broad strokes of specification:
+
+1. Identifies what patterns of concurrent memory access are problematic and illegal (data races);
+2. Specifies (new) language constructs necessary to avoid problem scenarios (synchronisation);
+3. Defines how a program will behave when in accordance with points 1 and 2 (e.g. optimisations).
+
+Points 1 and 2 are the contract required to be upheld by the programmer, and point 3 is the contract upheld in return by the compiler. In simple terms: don't write code containing a data race, and your program will behave like you wrote it. Otherwise, your code may not work.
+
+### Data races and synchronisation
+
+TODO: when does a data race occur? what is synchronisation?
+
 TODO
+
+## Practical examples
+
+TODO: revisit code from the start
 
 ## References
 
 \[1\] "atomic<> Weapons: The C++ Memory Model and Modern Hardware", Herb Sutter, https://herbsutter.com/2013/02/11/atomic-weapons-the-c-memory-model-and-modern-hardware/
+
+\[2\] "The New C++: Lay down your guns, knives, and clubs", Gavin Clarke, https://www.theregister.com/2011/06/11/herb_sutter_next_c_plus_plus
