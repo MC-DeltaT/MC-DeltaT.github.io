@@ -170,6 +170,10 @@ CPU designers have some control over what "correctness" means by way of memory m
 
 [^2]: I have a more detailed introduction to out of order execution available [here](https://github.com/MC-DeltaT/cpu-performance-demos/tree/main/out-of-order-execution).
 
+### Memory access alignment
+
+TODO
+
 ### Where's the memory model?
 
 At this point, you may be eager for an in-depth explanation of a real hardware memory model, such as for the ubiquitous x86 architecture. However, we are not going to discuss that here. While understanding hardware motivations is important, I argue knowing specifics is not important - and in fact, counterproductive - because as high level language programmers we should be focusing on software memory models. It is easy to fall victim to the trap of believing we understand the hardware memory model, thus ignoring relevant information. Some people claim, for example, that certain C++ constructs are required to enforce cache coherency on x86 - which is not true, because x86 cache hardware handles it for us. Further, others claim that out of order execution is a main component of thread safety on x86 - which is also not true, since most memory reorderings are disallowed on that architecture.  
@@ -254,17 +258,53 @@ Naturally, it would be nice for the language to specify one way to go about conc
 
 As mentioned a few times so far, a memory model is a contract between a user and implementer. In the case of C++, the user is the programmer, and the implementer is the compiler plus CPU hardware. The memory model sets forth three broad strokes of specification:
 
-1. Identifies what patterns of concurrent memory access are problematic and illegal (data races);
-2. Specifies (new) language constructs necessary to avoid problem scenarios (synchronisation);
-3. Defines how a program will behave when in accordance with points 1 and 2 (e.g. optimisations).
+1. Identifies what patterns of concurrent memory access are problematic and illegal - data races;
+2. Specifies new language constructs necessary to avoid problem scenarios - synchronisation;
+3. Defines how a program will behave when in accordance with points 1 and 2 - e.g. hardware and optimisations.
 
-Points 1 and 2 are the contract required to be upheld by the programmer, and point 3 is the contract upheld in return by the compiler. In simple terms: don't write code containing a data race, and your program will behave like you wrote it. Otherwise, your code may not work.
+Points 1 and 2 are the contract required to be upheld by the programmer, and point 3 is the contract upheld in return by the compiler. The contract is relatively simple: don't write code containing a data race, and your program will behave like you wrote it. Otherwise, your code may not work as expected. The power of the memory model is that all we need to do is obey it, and the compiler takes care of everything for us, no matter what environment our code executes within.
 
 ### Data races and synchronisation
 
-TODO: when does a data race occur? what is synchronisation?
+Data races are the driving concept of the C++ memory model. A program containing a data race produces undefined behaviour, meaning we can't rely on it functioning correctly 100% of the time. What is a data race? The C++ Standard has a specific definition[3]:
+
+> When a thread accesses a memory location and a different thread modifies the same memory location, a data race occurs unless:
+>
+> - both memory accesses are atomic, or
+> - one of the accesses *happens-before* the other.
+
+Without explicitly using any C++11 synchronisation constructs, neither of these conditions are met, so memory accesses between threads are data races, such as in this code:
+
+```c++
+// DATA RACE
+
+int shared_data = 0;
+
+void read() {
+    std::cout << shared_data << std::endl;
+}
+
+void write() {
+    shared_data = 42;
+}
+
+int main() {
+    std::thread thread1{read};
+    std::thread thread2{write};
+}
+```
+
+The definition of a data race gives us two directions on how to prevent them.  
+The first is atomics, AKA `std::atomic`: special types with magically thread-safe read and write semantics.  
+The second direction refers to memory ordering, which governs how memory accesses may be reordered, and is particularly significant to nonatomic memory accesses. Memory ordering can be devilishly complex and nuanced, so we will ease into it by starting with atomics.
+
+### Atomics
 
 TODO
+
+TODO: acquire-release semantics?
+
+TODO: other memory orderings?
 
 ## Practical examples
 
@@ -275,3 +315,5 @@ TODO: revisit code from the start
 \[1\] "atomic<> Weapons: The C++ Memory Model and Modern Hardware", Herb Sutter, https://herbsutter.com/2013/02/11/atomic-weapons-the-c-memory-model-and-modern-hardware/
 
 \[2\] "The New C++: Lay down your guns, knives, and clubs", Gavin Clarke, https://www.theregister.com/2011/06/11/herb_sutter_next_c_plus_plus
+
+\[3\] "Multi-threaded executions and data races", https://en.cppreference.com/w/cpp/language/multithread
