@@ -18,7 +18,7 @@ Without sounding too accusatory - because in large the problem is due to #1 -  t
 
 Some questions to consider, without judgement:
 
-- Could you explain the terms "memory model", "sequential consistency", and "data race"?
+- Could you explain the terms "memory model", "data race", and "sequential consistency"?
 - Do you know how `std::mutex`, `std::atomic`, `std::memory_order` work and when they are necessary?  
 - Do you know how `volatile` relates to thread safety?  
 - Could you explain the behaviour of the following code snippets?
@@ -32,23 +32,6 @@ std::thread producer{[&] {
     ready = true;
 }};
 std::thread consumer{[&] {
-    if (ready) {
-        std::cout << data;
-    }
-}};
-```
-
-```c++
-int data{};
-bool ready{};
-
-std::thread producer{[&] {
-    data = 42;
-    ready = true;
-    std::atomic_thread_fence(std::memory_order_release);
-}};
-std::thread consumer{[&] {
-    std::atomic_thread_fence(std::memory_order_acquire);
     if (ready) {
         std::cout << data;
     }
@@ -104,6 +87,23 @@ std::thread consumer{[&] {
 }};
 ```
 
+```c++
+int data{};
+bool ready{};
+
+std::thread producer{[&] {
+    data = 42;
+    ready = true;
+    std::atomic_thread_fence(std::memory_order_release);
+}};
+std::thread consumer{[&] {
+    std::atomic_thread_fence(std::memory_order_acquire);
+    if (ready) {
+        std::cout << data;
+    }
+}};
+```
+
 If you thought "no" or "unsure" to any of those questions, then read on and rest assured - let us share in a thread safety journey.
 
 ## Quick Shout-out to Herb Sutter
@@ -114,7 +114,7 @@ A lot of what I know about thread safety in C++ comes from a presentation by Her
 
 Let's begin by solidifying what we mean by thread safety.
 
-In concurrent systems, there may be multiple processors executing instructions at the same time on the same data. In C++, that might look like this:
+In concurrent systems, there may be multiple processors performing operations at the same time on the same data. We say there are multiple "threads" of execution. In C++, that might look like this:
 
 ```c++
 int shared_data = 0;
@@ -135,37 +135,35 @@ int main() {
 
 (Warning: the above code is not valid.)
 
-On the surface, the code may appear straightforward enough, but if we really think about it, things gets ambiguous. What does it mean for two processors to operate on data at the same time? What is "data"? What is "the same time"? Computers are near-incomprehensibly complex machines; finding answers is not trivial.
+On the surface, the code may appear straightforward enough, but if we really think about it, things gets ambiguous. What does it mean for two processors to operate on data at the same time? What is "data"? What is "the same time"?
 
-The framework which enables us to reason about these concurrency questions is called a "memory model". A memory model is a contract between the user and implementer of a computer system. It is, for the most part, a magic abstraction, derived from the incredible nuance of computer hardware and software. As high level language programmers, we primarily interact with the memory model of our programming language.  
-If you're thinking "memory models sound awfully vague" - that's deliberate, and in a sense, true. We will slowly add nuance and work our way up to a full explanation of the C++ memory model.
+The framework which enables us to reason about these concurrency questions is called a "memory model". A memory model is a contract between the user and implementer of a computer system. Then, "thread safety" is about writing code which obeys the rules of a memory model. If code plays nicely with the memory model, we can reason about its behaviour and place assurances on its correctness - it is "thread safe" code. On the other hand, if code runs afoul of the memory model, it is not thread safe, and it could exhibit weird behaviour. The code might not work at all. Or it might work 95% of the time. Or it might always work but only on one type of computer.
 
-"Thread safety" is about writing code which obeys the rules of a memory model. If code plays nicely with the memory model, then we can reason about its behaviour and place assurances on its correctness - it is "thread safe" code. On the other hand, if code runs afoul of the memory model, then we say it is not thread safe, and it could exhibit weird behaviour. The code might not work at all. Or it might work 95% of the time. Or it might always work but only on one type of computer.
+Understanding memory models is the key to writing thread safe code - such knowledge gives you the confidence to create concurrent programs knowing they will function as you desire. At the moment, memory models probably sound like a vague concept, which is in some part true. They are massive abstractions layered over mountains of complexity of computer systems. In order to understand them fully, we must take a trip through some of that complexity, from the bare metal up - only then can we face the C++ memory model with a truly holistic understanding.
 
 ## Memory Model - The Hardware Perspective
 
-Now we will look at memory models as they function at the bare metal. By reading this section, you promise not to stop here and run off with the newfound knowledge. A proper understanding of thread safety requires knowledge both hardware and software memory models (next section)!
+We start at the bottom of the world in which our software runs: the raw computer hardware.
 
-The brain of most computers is a "central processing unit" - or CPU for short. The bulk of the CPU's role is to perform logic and math operations - called "instructions" - on data. On most commodity hardware, data used by a computer while switched on is stored in main memory (RAM), accessible to the CPU via an electrical connection[^1]. Inside the CPU chip, there can be multiple "cores", which can independently execute instructions and access memory. Cores also have fast internal storage called "registers", which act like working out space for instructions.
+The brain of most computers is the "central processing unit", or CPU for short. The bulk of the CPU's role is to perform logic and math operations - called "instructions" - on data. Data used by a computer while switched on is stored in main memory (RAM), which typically sits separate to the CPU. Inside the CPU chip, there can be multiple "cores", which can independently execute instructions and access memory. Cores also have fast internal storage called "registers", which act like working out space for instructions. The setup of multiple cores in one computer is useful for running multiple programs simultaneously, and for increasing the performance of individual programs.
 
-The purpose of a CPU's memory model is to define what happens with regards to multiple cores accessing the same main memory. For the discussion here, the "same main memory" means the same physical memory address, that is, the same physical circuits storing the same data. Generally, there is only one electrical connection from the CPU to main memory, so only one access to memory can occur at one point in time. You might think this means thread safety becomes trivial, yet unfortunately that is not the case. CPUs are complex constructions and have many tricks up their sleeves.
+TODO: link to further reading about CPUs
 
-[^1]: This is a huge simplification, and you may point out that modern hardware does not strictly follow a Von Neumann architecture, but is a mixture of architectures. This is true, and adds to my point that hardware memory models are very complex.
+Since we have multiple cores all doing things at the same time, what happens if two cores want to access the same memory? Such scenarios are extremely common nowadays. Even before your program runs, operating systems have a plethora of shared data used for coordinating program execution, tracking resource usage, and so on. And many programs themselves use multiple threads to boost performance or enact asynchronous tasks. Clearly, concurrent memory access is everywhere, and the hardware must deal with it *somehow*. How, is where hardware memory models come in. Depending on the design of the CPU, there will be a governing memory model which defines the behaviour of concurrent memory accesses. Let's have a look at some design factors with play a role in hardware memory models.
 
 ### Cache
 
-Over time, CPU operating speeds have significantly outpaced the performance of main memory. The reason is that the cheapest and dominant technology for main memory - DRAM - is constrained on an electrical level to have slower response characteristics compared to CPU logic technology. To alleviate performance bottlenecks arising from slow memory accesses, CPUs got "cache": a faster, but limited, intermediate storage between the CPU logic and main memory.
+Over time, CPU operating speeds have significantly outpaced the performance of main memory in commodity systems due to difference in underlying technologies. To alleviate performance bottlenecks arising from slow memory accesses, CPUs got "cache": a faster, but limited, intermediate storage between the CPU logic and main memory.
 
-When loading data from main memory, the data is put into the cache first. If the CPU reads the same memory address again later, the cache provides the data quickly, rather than waiting to load from memory again. When the CPU writes data, it first goes into the cache in case it needs to be read soon. If at any point the cache can't fit any more data, previous data is evicted. When utilised effectively, cache enables the CPU to rarely wait for memory accesses and performance improves significantly.
+Cache works like a temporary buffer. When loading data from main memory, the data is put into the cache first. If the CPU reads the same memory address again later, the cache provides the data quickly, rather than waiting to load from memory again. When the CPU writes data, it first goes into the cache in case it needs to be read soon. If at any point the cache can't fit any more data, previous data is evicted. When utilised effectively, cache allows the CPU to operate at its peak performance, avoiding the need to wait for main memory accesses. Without cache, the performance of code using main memory (i.e., almost everything) is crippled.
 
-The existence of cache immediately raises problems for a CPU with multiple cores. If the same cache is shared between all cores, then it becomes difficult to obtain high performance. However, if each core has a separate cache, then cores could end up with different (cached) data for the same memory address! This problem is known as "cache coherency".  
-Clearly some thinking is required to determine how the cache system deals with concurrency, and this is one potential factor contributing to the memory model at the hardware level.
+But the existence of cache immediately raises problems for a CPU with multiple cores. The best performing cache is separate per core, due to circuit design complexity. However, if each core has a different cache, then cores could end up with different (cached) data for the same memory address! Data communication between cores could be ruined. This problem is known as "cache coherency", and it requires some thinking and deliberate design to solve. How it is solved factors into the memory model guaranteed to the CPU programmer.
 
 ### Out of order execution
 
 A fascinating aspect of modern CPU design is their knack for not executing instructions in the order the programmer specifies. Such design is known as "out of order execution" and came about to improve utilisation of available CPU resources, hence improving software performance. We won't dive into the complex details here, but the gist is that by reordering of instructions, throughtput is increased by finding an ordering which takes advantage of the free resources in the CPU at that time. Of course, the reordering must be done such that the correctness of the program is not affected.[^2]
 
-Memory access instructions may be reordered too, if desirable. This is interesting, since memory is an external entity the CPU may not have perfect knowledge on: often memory addresses are not known in advance; and a single CPU core may not know what memory accesses other cores are performing at the same time. Obviously, arbitrarily reordering memory accesses will heavily influence the correctness of data communication between cores, i.e. thread safety. At the same time, performance goals pressure CPU design towards increased reordering.  
+Memory access instructions may be reordered too, if desirable for performance. This is interesting, since memory is an entity external to the CPU, and one core might not know what else is accessing memory. Obviously, arbitrarily reordering memory accesses will heavily influence the correctness of data communication between cores, i.e. thread safety. Arbitrary memory instruction ordering would probably be unusably chaotic. At the same time, performance goals pressure CPU design towards increased reordering.  
 CPU designers have some control over what "correctness" means by way of memory models. The memory model will define what memory access reorderings are possible, depending on the chosen tradeoff with performance. Compilers and assembly writers must be aware of possible reorderings to ensure they use memory access instructions in an appropriate manner to produce the desired behaviour.
 
 [^2]: I have a more detailed introduction to out of order execution available [here](https://github.com/MC-DeltaT/cpu-performance-demos/tree/main/out-of-order-execution).
@@ -213,6 +211,8 @@ Languages like C++ are liked in part for their runtime speed, which is helped by
 
 The topic of code optimisation is huge and you could spend your whole career on it, but all we need to know here is the compiler will happily add, remove, and reorder memory accesses to improve performance. (Sound familiar? Yes, similar vein as out of order execution.) To illustrate, consider this simple function which performs math on some arrays:
 
+TODO: simpler example code
+
 ```c++
 float func(float const* a, float const* b, unsigned size) {
     float result = 0;
@@ -255,6 +255,8 @@ Fun fact: C++ first standardised its memory model in C++11, over 25 years after 
 Naturally, it would be nice for the language to specify one way to go about concurrency which is efficient and portable across many systems, especially as multithreaded applications became more prevalent in consumer software. So, C++11 finally introduced one officialy memory model.[2]
 
 ### C++11 memory model - overview
+
+TODO: maybe replace/combined this with the standard's definition
 
 As mentioned a few times so far, a memory model is a contract between a user and implementer. In the case of C++, the user is the programmer, and the implementer is the compiler plus CPU hardware. The memory model sets forth three broad strokes of specification:
 
