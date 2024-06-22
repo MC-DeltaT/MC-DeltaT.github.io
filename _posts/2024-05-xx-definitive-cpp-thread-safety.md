@@ -174,44 +174,47 @@ TODO
 
 ### Where's the memory model?
 
-At this point, you may be eager for an in-depth explanation of a real hardware memory model, such as for the ubiquitous x86 architecture. However, we are not going to discuss that here. While understanding hardware motivations is important, I argue knowing specifics is not important - and in fact, counterproductive - because as high level language programmers we should be focusing on software memory models. It is easy to fall victim to the trap of believing we understand the hardware memory model, thus ignoring relevant information. Some people claim, for example, that certain C++ constructs are required to enforce cache coherency on x86 - which is not true, because x86 cache hardware handles it for us. Further, others claim that out of order execution is a main component of thread safety on x86 - which is also not true, since most memory reorderings are disallowed on that architecture.  
-What we really do need to know is the programming language's memory model, which we will explore next.
+At this point, you may be eager for an in-depth explanation of a real hardware memory model, such as for the ubiquitous x86 architecture. However, we are not going to discuss that here. While understanding hardware motivations is important, I argue knowing specifics is counterproductive, because as high level language programmers we should be focusing on software memory models. It is easy to believe we understand the hardware memory model and that the buck stops there. In fact, on the x86 architecture, the topics we covered largely don't play a large role in thread safety, because the hardware memory model is quite generous![^3] Yet some people will try to claim, for example, that cache coherency is why you must use `std::atomic`.  
+What we really do need to know, and what should inform our decisions the most, is the programming language's memory model, which we will explore next.
+
+[^3]: The x86 memory model is one of the most programmer-friendly out there, as concerns like cache coherency are solved invisibly by the hardware. However, we pay a continual cost in performance, efficiency, and chip complexity as a result of that design tradeoff. Newer chips, such as ARM, have shifted the tradeoff closer to efficiency.
 
 ## Memory Model - The Software Perspective
 
-Programming languages vary greatly in how they approach memory and concurrency, depending on their design goals. Some languages pretend concurrency doesn't exist, while others embrace it in their core features. Likewise, some languages may force you deep into the weeds of memory management, and others do not even expose the concept of memory[^3]. Further, under the surface, compilers perform all sorts of magic to make code run on many hardware platforms and with high performance.
+Programming languages vary greatly in how they approach memory and concurrency, depending on their design goals. Some languages pretend concurrency doesn't exist, while others embrace it in their core features. Likewise, some languages may force you deep into the weeds of memory management, and others do not even expose the concept of memory[^4]. Further, under the surface, compilers perform all sorts of magic to make code run on many hardware platforms and with high performance.
 
 Like a programming language's syntax defines what sequence of characters are legal, a language's memory model is a contract between the programmer and the compiler (and thus, hardware) on legal behaviour of concurrent memory accesses. In this section, we will see the factors which go into a programming language's memory model.
 
-[^3]: Some programming languages, particularly functional languages, do not have the concept of shared mutable memory. Thread safety is effectively "solved" in such languages.
+[^4]: Some programming languages, particularly functional languages, do not have the concept of shared mutable memory. Thread safety is effectively "solved" in such languages.
 
 ### Read-modify-write operations
 
-Even with the most basic hardware memory model underneath us, we can't guilelessly write correct programs with multiple threads active. Consider the case of incrementing an integer in memory, which a compiler might translate to this sequence of CPU instructions:
+Even with the friendliest hardware memory model with us, we can't guilelessly write correct programs with multiple threads active. Consider the case of incrementing an integer in memory, which a compiler might translate to this sequence of CPU instructions:
 
 1. Read the value `V` of memory location `M` into a register `R`.
 2. Increment `R` by 1. I.e. `V = V + 1`.
 3. Write the new value of `V` in `R` back into memory location `M`.
 
-This is a classic "read-modify-write" operation and is the bread and butter of software. Read data from memory, do something do it, then write the result back to memory. Now, what happens if two threads execute this operation at the same time? Imagine `V` begins equal to 0.
+This is a classic "read-modify-write" operation and is the bread and butter of computation. Read data from memory, do something do it, then write the result back to memory. Now, what happens if two threads execute this operation at the same time? Imagine `V` begins equal to 0.
 
-| Time | Thread 1       | Thread 2       |
-| ---- | -------------- | -------------- |
-| 1    | Read 0         | Read 0         |
-| 2    | Increment 0->1 | Increment 0->1 |
-| 3    | Write 1        | Write 1        |
+| Time | Thread 1        | Thread 2        |
+| ---- | --------------- | --------------- |
+| 1    | Read 0          | Read 0          |
+| 2    | Increment 0 → 1 | Increment 0 → 1 |
+| 3    | Write 1         | Write 1         |
 
-We thought we incremented `M` twice, but actually ended up with `M=1`! This is because nothing stops one thread reading the same original value while the other is busy doing something else. This problem is known generally as a "data race", because the result depends on the threads "racing" each other to execute. In order to prevent such a scenario, extra coordination - known as "synchronisation" is required. This coordination comes in different forms, such as special CPU instructions, or language-level guidance from the programmer.
-
-In fact, data races are a fundamental problem in concurrency that exist beyond specifics of programming languages, compilers, and CPU hardware. If you think about it, *any* system where multiple entities are performing read-modify-write operations are subject to this problem!
+We thought we incremented `M` twice, but actually ended up with `M=1`! This is because nothing stops the threads' execution from overlapping. The problem in general is known as a "data race", because the result depends on the threads "racing" each other to execute. Data races are a fundamental issue faced by any system where multiple entities are performing read-modify-write operations.  
+The solution is to add coordination, or "synchronisation", between entities. On the micro scale, synchronisation might entail special CPU instructions generated by the compiler; on the macro scale, it might require particular algorithm design using constructs such as mutexes.
 
 ### Compiler optimisations
 
-Languages like C++ are liked in part for their runtime speed, which is helped by the awesome optimisations done by compilers. Modern C/C++ compilers can be quite aggressive in rearranging the code we write into fast machine code. To paraphrase Herb Sutter in his memory model talk\[1\]: the compiler accepts our source code and gives us back the "code we meant to write" to yield optimal performance.
+Languages like C++ are liked in part for their runtime speed, which is helped by the awesome optimisations done by compilers. Modern C/C++ compilers can be quite aggressive in rearranging source code into fast machine code. To paraphrase Herb Sutter in his memory model talk\[1\]: the compiler accepts our source code and gives us back the "code we meant to write" to yield optimal performance.
 
-The topic of code optimisation is huge and you could spend your whole career on it, but all we need to know here is the compiler will happily add, remove, and reorder memory accesses to improve performance. (Sound familiar? Yes, similar vein as out of order execution.) To illustrate, consider this simple function which performs math on some arrays:
+The topic of code optimisation is huge and you could spend your whole career on it, but all we need to know here is the compiler will happily add, remove, and reorder memory accesses to improve performance. (Sound familiar? Yes, similar vein as out of order execution.) Common optimisations include: eliding adjacent reads, merging adjacent writes, and placing data in registers intead of memory.
 
 TODO: simpler example code
+
+To illustrate, consider this simple function which performs math on some arrays:
 
 ```c++
 float func(float const* a, float const* b, unsigned size) {
