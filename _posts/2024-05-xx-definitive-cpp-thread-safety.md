@@ -170,22 +170,29 @@ CPU designers have some control over what "correctness" means by way of memory m
 
 ### Memory access alignment
 
+In some CPU designs, the hardware can only directly access memory at memory addresses which are a multiple of the CPU's natural data size. For example, the CPU might like to deal in terms of 8 bytes, and can only fetch memory addresses that are a multiple of 8. We say these addresses are "aligned".[^3] Such a design is favourable for reducing complexity and improving efficiency of the circuit design.
+
 TODO
+
+[^3]: I'm using the word "memory" loosely here, referring to both main memory access and cache access. Similar issues arise for both:
+
+- Main memory technology and/or its connection to the CPU may only electrically support aligned accesses by design.
+- Cache is generally split into small chunks according to memory address, so accessing data which straddles two chunks may incur overhead or be disallowed.
 
 ### Where's the memory model?
 
-At this point, you may be eager for an in-depth explanation of a real hardware memory model, such as for the ubiquitous x86 architecture. However, we are not going to discuss that here. While understanding hardware motivations is important, I argue knowing specifics is counterproductive, because as high level language programmers we should be focusing on software memory models. It is easy to believe we understand the hardware memory model and that the buck stops there. In fact, on the x86 architecture, the topics we covered largely don't play a large role in thread safety, because the hardware memory model is quite generous![^3] Yet some people will try to claim, for example, that cache coherency is why you must use `std::atomic`.  
+At this point, you may be eager for an in-depth explanation of a real hardware memory model, such as for the ubiquitous x86 architecture. However, we are not going to discuss that here. While understanding hardware motivations is important, I argue knowing specifics is counterproductive, because as high level language programmers we should be focusing on software memory models. It is easy to believe we understand the hardware memory model and that the buck stops there. In fact, on the x86 architecture, the topics we covered don't play as large a role in thread safety as you might think, because the hardware memory model is quite generous![^4] Yet some people will try to claim, for example, that cache coherency is why you must use `std::atomic`.  
 What we really do need to know, and what should inform our decisions the most, is the programming language's memory model, which we will explore next.
 
-[^3]: The x86 memory model is one of the most programmer-friendly out there, as concerns like cache coherency are solved invisibly by the hardware. However, we pay a continual cost in performance, efficiency, and chip complexity as a result of that design tradeoff. Newer chips, such as ARM, have shifted the tradeoff closer to efficiency.
+[^4]: The x86 memory model is one of the most CPU-programmer-friendly out there, as much is solved invisibly by the hardware. Cache coherency is basically not a concern from the programmer's perspective, and most memory instruction reorderings are disallowed. Only unaligned memory access incurs some thread safety hazards. However, we pay a continual cost in performance, efficiency, and chip complexity in exchange for such a friendly model. Newer chips, such as ARM, have shifted the tradeoff closer to efficiency.
 
 ## Memory Model - The Software Perspective
 
-Programming languages vary greatly in how they approach memory and concurrency, depending on their design goals. Some languages pretend concurrency doesn't exist, while others embrace it in their core features. Likewise, some languages may force you deep into the weeds of memory management, and others do not even expose the concept of memory[^4]. Further, under the surface, compilers perform all sorts of magic to make code run on many hardware platforms and with high performance.
+Programming languages vary greatly in how they approach memory and concurrency, depending on their design goals. Some languages pretend concurrency doesn't exist, while others embrace it in their core features. Likewise, some languages may force you deep into the weeds of memory management, and others do not even expose the concept of memory[^5]. Further, under the surface, compilers perform all sorts of magic to make code run on many hardware platforms and with high performance.
 
 Like a programming language's syntax defines what sequence of characters are legal, a language's memory model is a contract between the programmer and the compiler (and thus, hardware) on legal behaviour of concurrent memory accesses. In this section, we will see the factors which go into a programming language's memory model.
 
-[^4]: Some programming languages, particularly functional languages, do not have the concept of shared mutable memory. Thread safety is effectively "solved" in such languages.
+[^5]: Some programming languages, particularly functional languages, do not have the concept of shared mutable memory. Thread safety is effectively "solved" in such languages.
 
 ### Read-modify-write operations
 
