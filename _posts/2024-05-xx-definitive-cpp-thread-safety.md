@@ -164,7 +164,7 @@ But the existence of cache immediately raises problems for a CPU with multiple c
 A fascinating aspect of modern CPU design is their knack for not executing instructions in the order the programmer specifies. Such design is known as "out of order execution" and came about to improve utilisation of available CPU resources, hence improving software performance. We won't dive into the complex details here, but the gist is that by reordering of instructions, throughtput is increased by finding an ordering which takes advantage of the free resources in the CPU at that time. Of course, the reordering must be done such that the correctness of the program is not affected.[^2]
 
 Memory access instructions may be reordered too, if desirable for performance. This is interesting, since memory is an entity external to the CPU, and one core might not know what else is accessing memory. Obviously, arbitrarily reordering memory accesses will heavily influence the correctness of data communication between cores, i.e. thread safety. Arbitrary memory instruction ordering would probably be unusably chaotic. At the same time, performance goals pressure CPU design towards increased reordering.  
-CPU designers have some control over what "correctness" means by way of memory models. The memory model will define what memory access reorderings are possible, depending on the chosen tradeoff with performance. Compilers and assembly writers must be aware of possible reorderings to ensure they use memory access instructions in an appropriate manner to produce the desired behaviour.
+CPU designers have some control over what "correctness" means by way of memory models. The memory model will define what memory access reorderings are possible, depending on the chosen tradeoff with performance. Compilers and CPU programmers must be aware of possible reorderings to ensure they use memory access instructions in an appropriate manner to produce the desired behaviour.
 
 [^2]: I have a more detailed introduction to out of order execution available [here](https://github.com/MC-DeltaT/cpu-performance-demos/tree/main/out-of-order-execution).
 
@@ -172,16 +172,16 @@ CPU designers have some control over what "correctness" means by way of memory m
 
 In some CPU designs, the hardware can only directly access memory at memory addresses which are a multiple of the CPU's natural data size. For example, the CPU might like to deal in terms of 8 bytes, and can only fetch memory addresses that are a multiple of 8. We say these addresses are "aligned".[^3] Such a design is favourable for reducing complexity and improving efficiency of the circuit design.
 
-TODO
+Some CPU designs disallow unaligned accesses, but often in modern hardware, lack of alignment is permitted and handled by the CPU for convenience. Unfortunately, convenience usually comes at the cost of something. If memory can only be accessed in an aligned manner, then fulfilling an unaligned request requires piecing together data from multiple separate aligned accesses. The question arises of what happens if the data is changed by another core in between the two accesses? It's plausible we could get half old, half new data - gross. The memory model of the CPU will define what the behaviour is surrounding this scenario. Compilers and assembly writers might need to ensure all data is aligned correctly, or use special instructions to avoid the problem.
 
-[^3]: I'm using the word "memory" loosely here, referring to both main memory access and cache access. Similar issues arise for both:
+[^3]: I'm purposely using the word "memory" loosely here, referring to both main memory access and cache access. Similar issues arise for both:
 
 - Main memory technology and/or its connection to the CPU may only electrically support aligned accesses by design.
 - Cache is generally split into small chunks according to memory address, so accessing data which straddles two chunks may incur overhead or be disallowed.
 
 ### Where's the memory model?
 
-At this point, you may be eager for an in-depth explanation of a real hardware memory model, such as for the ubiquitous x86 architecture. However, we are not going to discuss that here. While understanding hardware motivations is important, I argue knowing specifics is counterproductive, because as high level language programmers we should be focusing on software memory models. It is easy to believe we understand the hardware memory model and that the buck stops there. In fact, on the x86 architecture, the topics we covered don't play as large a role in thread safety as you might think, because the hardware memory model is quite generous![^4] Yet some people will try to claim, for example, that cache coherency is why you must use `std::atomic`.  
+At this point, you may be eager for an in-depth explanation of a real hardware memory model, such as for the ubiquitous x86 architecture. However, we are not going to discuss that here. While understanding hardware motivations is important, I argue knowing specifics is counterproductive, because as high level language programmers we should be focusing on software memory models. It is easy to believe we understand the hardware memory model and that the buck stops there. In fact, on the x86 architecture, the topics we covered don't play as large a role in thread safety as you might think, because the hardware memory model is quite generous![^4] Yet some people will try to claim, for example, that cache coherency is the reason why you must use `std::atomic`.  
 What we really do need to know, and what should inform our decisions the most, is the programming language's memory model, which we will explore next.
 
 [^4]: The x86 memory model is one of the most CPU-programmer-friendly out there, as much is solved invisibly by the hardware. Cache coherency is basically not a concern from the programmer's perspective, and most memory instruction reorderings are disallowed. Only unaligned memory access incurs some thread safety hazards. However, we pay a continual cost in performance, efficiency, and chip complexity in exchange for such a friendly model. Newer chips, such as ARM, have shifted the tradeoff closer to efficiency.
@@ -211,7 +211,7 @@ This is a classic "read-modify-write" operation and is the bread and butter of c
 | 3    | Write 1         | Write 1         |
 
 We thought we incremented `M` twice, but actually ended up with `M=1`! This is because nothing stops the threads' execution from overlapping. The problem in general is known as a "data race", because the result depends on the threads "racing" each other to execute. Data races are a fundamental issue faced by any system where multiple entities are performing read-modify-write operations.  
-The solution is to add coordination, or "synchronisation", between entities. On the micro scale, synchronisation might entail special CPU instructions generated by the compiler; on the macro scale, it might require particular algorithm design using constructs such as mutexes.
+The solution is to add coordination, or "synchronisation", between entities. On the micro scale, synchronisation might mean special CPU instructions generated by the compiler; on the macro scale, it might require particular algorithm design using constructs such as mutexes.
 
 ### Compiler optimisations
 
@@ -219,40 +219,13 @@ Languages like C++ are liked in part for their runtime speed, which is helped by
 
 The topic of code optimisation is huge and you could spend your whole career on it, but all we need to know here is the compiler will happily add, remove, and reorder memory accesses to improve performance. (Sound familiar? Yes, similar vein as out of order execution.) Common optimisations include: eliding adjacent reads, merging adjacent writes, and placing data in registers intead of memory.
 
-TODO: simpler example code
+To illustrate, consider this function:
 
-To illustrate, consider this simple function which performs math on some arrays:
+TODO: code example
 
-```c++
-float func(float const* a, float const* b, unsigned size) {
-    float result = 0;
-    for (unsigned i = 0; i < size; ++i) {
-        for (unsigned j = 0; j < size; ++j) {
-            result += a[i] * b[j];
-        }
-    }
-    return result;
-}
-```
+TODO: complete wording
 
-You may notice that `a[i]` accesses memory every iteration in the inner loop, yet `i` is not changing. The compiler could move the read of `a[i]` outside the inner loop and save the value in a register to be more efficient; something like this:
-
-```c++
-float func(float const* a, float const* b, unsigned size) {
-    float result = 0;
-    for (unsigned i = 0; i < size; ++i) {
-        float const a_i = a[i];
-        for (unsigned j = 0; j < size; ++j) {
-            result += a_i * b[j];
-        }
-    }
-    return result;
-}
-```
-
-Not only does this change reduce the number of instructions executed within the inner loop, it likely opens the door to other optimisations too.
-
-But wait! What if another thread updates `a[i]` while the inner loop is running? Then the result could be different with and without the optimisation. Perhaps you want the optimisation, or perhaps not - how should the compiler know? There is a tradeoff between freedom to optimise and simplicity for the programmer. Software memory models specify where the tradeoff is set, defining which optimisations the compiler may do and what assumptions the programmer may make surrounding memory access.
+Perhaps you want the optimisation, or perhaps not - how should the compiler know? There is a tradeoff between freedom to optimise and simplicity for the programmer. Software memory models specify where the tradeoff is set, defining which optimisations the compiler may do and what assumptions the programmer may make surrounding memory access.
 
 ## The C++ Memory Model
 
