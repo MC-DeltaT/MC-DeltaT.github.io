@@ -137,6 +137,8 @@ int main() {
 
 On the surface, the code may appear straightforward enough, but if we really think about it, things gets ambiguous. What does it mean for two processors to operate on data at the same time? What is "data"? What is "the same time"?
 
+TODO: say more about memory model also being a framework for guiding concurrent code design. like driving a car to get to your destination
+
 The framework which enables us to reason about these concurrency questions is called a "memory model". A memory model is a contract between the user and implementer of a computer system. Then, "thread safety" is about writing code which obeys the rules of a memory model. If code plays nicely with the memory model, we can reason about its behaviour and place assurances on its correctness - it is "thread safe" code. On the other hand, if code runs afoul of the memory model, it is not thread safe, and it could exhibit weird behaviour. The code might not work at all. Or it might work 95% of the time. Or it might always work but only on one type of computer.
 
 Understanding memory models is the key to writing thread safe code - such knowledge gives you the confidence to create concurrent programs knowing they will function as you desire. At the moment, memory models probably sound like a vague concept, which is in some part true. They are massive abstractions layered over mountains of complexity of computer systems. In order to understand them fully, we must take a trip through some of that complexity, from the bare metal up - only then can we face the C++ memory model with a truly holistic understanding.
