@@ -24,8 +24,8 @@ Some questions to consider, without judgement:
 - Could you explain the behaviour of the following code snippets?
 
 ```c++
-int data{};
-bool ready{};
+int data;
+bool ready = false;
 
 std::thread producer{[&] {
     data = 42;
@@ -39,8 +39,8 @@ std::thread consumer{[&] {
 ```
 
 ```c++
-int data{};
-std::atomic<bool> ready{};
+int data;
+std::atomic<bool> ready = false;
 
 std::thread producer{[&] {
     data = 42;
@@ -54,8 +54,8 @@ std::thread consumer{[&] {
 ```
 
 ```c++
-int data{};
-bool ready{};
+int data;
+bool ready = false;
 std::mutex mutex;
 
 std::thread producer{[&] {
@@ -72,8 +72,8 @@ std::thread consumer{[&] {
 ```
 
 ```c++
-int data{};
-bool ready{};
+int data;
+bool ready = false;
 
 std::thread producer{[&] {
     data = 42;
@@ -88,8 +88,8 @@ std::thread consumer{[&] {
 ```
 
 ```c++
-int data{};
-bool ready{};
+int data;
+bool ready = false;
 
 std::thread producer{[&] {
     data = 42;
@@ -216,17 +216,36 @@ We thought we incremented `M` twice, but actually ended up with `M=1`! This is b
 
 ### Compiler optimisations
 
-Languages like C++ are liked in part for their runtime speed, which is helped by the awesome optimisations done by compilers. Modern C/C++ compilers can be quite aggressive in rearranging source code into fast machine code. To paraphrase Herb Sutter in his memory model talk\[1\]: the compiler accepts our source code and gives us back the "code we meant to write" to yield optimal performance.
+Languages like C++ are liked in part for their runtime speed, which is assisted by the awesome optimisations done by compilers. Modern C/C++ compilers can be quite aggressive in rearranging source code into fast machine code. To paraphrase Herb Sutter in his memory model talk\[1\]: the compiler accepts our source code and gives us back the "code we meant to write" to yield optimal performance.
 
 The topic of code optimisation is huge and you could spend your whole career on it, but all we need to know here is the compiler will happily add, remove, and reorder memory accesses to improve performance. (Sound familiar? Yes, similar vein as out of order execution.) Common optimisations include: eliding adjacent reads, merging adjacent writes, and placing data in registers intead of memory.
 
-To illustrate, consider this function:
+To illustrate, consider this function which sums the elements of an array:
 
-TODO: code example
+```c++
+void sum(std::vector<int> const& array, long long* result) {
+    *result = 0;
+    for (int e : array) {
+        *result += e;
+    }
+}
+```
 
-TODO: complete wording
+If dereferencing `result` incurs a memory access, then this function has the potential to perform a lot of memory accesses. Given that memory is relatively slow, the compiler would love to find an alternative method, and that is just what it will do. After optimisation, the code might resemble this:
 
-Perhaps you want the optimisation, or perhaps not - how should the compiler know? There is a tradeoff between freedom to optimise and simplicity for the programmer. Software memory models specify where the tradeoff is set, defining which optimisations the compiler may do and what assumptions the programmer may make surrounding memory access.
+```c++
+void sum(std::vector<int> const& array, long long* result) {
+    *result = 0;
+    long long tmp = 0;  // CPU register
+    for (int e : array) {
+        tmp += e;
+    }
+    *result = tmp;  // Memory access
+}
+```
+
+The compiler has used a temporary, fast CPU register to accumulate the result, rather than writing to slow memory every iteration. Brilliant!  
+But wait - what if another thread was monitoring `result`? Before optimisation, it would see many partial sums, but now, it will only see 0 and the final sum. You may say that in this example, of course there is no other thread watching. Congratulations; as a human programmer you know the intent behind the code. Unfortunately, the compiler may not know the context. Perhaps you want the optimisation, or perhaps not - how should the compiler know for certain? There is a tradeoff between freedom to optimise and simplicity for the programmer. Software memory models specify where the tradeoff is set, defining how the programmer specifies their intent and which optimisations the compiler may do surrounding memory access.
 
 ## The C++ Memory Model
 
@@ -234,7 +253,7 @@ Hopefully by now, you have a good idea of what is at play behind the scenes of t
 
 ### History and context
 
-Fun fact: C++ first standardised its memory model in C++11, over 25 years after the inception of the language. I might guess that it took so long, as many things do in C++, due to the huge variety of use cases and platforms on which it is run (although I have no evidence for this). Before C++11, the official language standard provided no guarantees on the behaviour of concurrent code. Of course people did write concurrent code before 2011, but correctness came from specific compilers and hardware platforms. That meant that code you wrote that worked on one machine may not work on another, and C++ didn't care. The pre-C++11 standard dealt in terms of single threaded applications only.
+C++ first standardised its memory model in C++11, over 25 years after the inception of the language. I might guess that it took so long, as many things do in C++, due to the huge variety of use cases and platforms on which it is run (although I have no evidence for this). Before C++11, the official language standard provided no guarantees on the behaviour of concurrent code. Of course people did write concurrent code before 2011, but correctness came from specific compilers and hardware platforms. That meant code you wrote that worked on one machine may not work on another, and C++ didn't care. The pre-C++11 standard dealt in terms of single threaded applications only.
 
 Naturally, it would be nice for the language to specify one way to go about concurrency which is efficient and portable across many systems, especially as multithreaded applications became more prevalent in consumer software. So with C++11, one official memory model was finally introduced.[2]
 
@@ -255,31 +274,27 @@ This is quite a harsh landscape to step into. Even the simplest code with multip
 
 int shared_data = 0;
 
-void read() {
+void read_data() {
     std::cout << shared_data << std::endl;
 }
 
-void write() {
+void write_data() {
     shared_data = 42;
 }
 
-int main() {
-    std::thread thread1{read};
-    std::thread thread2{write};
-}
+std::thread thread1{read_data};
+std::thread thread2{write_data};
 ```
-
-TODO: note about no join
 
 The reason C++ takes this stance is for performance. Thread safety is somewhat at odds with performance, and C++ loves to prioritise performance, so by default the compiler and hardware are allowed to go wild with optimisation. You may argue this approach is suboptimal, and you may be right - but you cannot deny the reality. If we want thread safety, we must force the compiler's hand.
 
 ### Atomics - a step towards sanity
 
-To begin our journey from all-consuming undefined behaviour to thread safety, we turn to the humble memory access. One problem we have learnt about memory accesses is that computers love to jumble them around. For example, they might be split up, or done but not *really* done, or reordered, or outright removed. With memory being such a core component of software, we are left struggling, hard. "Atomics" make whole again our concept of memory which was devastated by complex factors.
+One problem we have established about memory accesses is that computers love to jumble them around. For example, they might be split up, reordered, or outright removed. With memory being such a fundamental component in software, these facts leave us with disastrously shaky foundations on which to attempt to build programs. "Atomics" provide critical initial stabilisation to enable safe memory concurrency.
 
 The idea of an atomic operation is that of an operation which is fundamental and indivisible, either done completely or not at all. You can think of it as an operation which occurs at an infinitely small point in time. One nanosecond, nothing has happened, and the next, the operation is completed. No matter what you do, you cannot observe an atomic operation "in progress", nor force two of them to overlap in execution.
 
-If memory accesses could be atomic, then they would align with our naive intuition, and provide a baseline on which to reason about memory concurrency. This job is exactly the purpose of C++11's [`std::atomic`](https://en.cppreference.com/w/cpp/atomic/atomic). This type wraps another trivial type, for example `int`, and provides an interface with atomic semantics blessed by the Standard. If an object is `std::atomic`, then accessing it concurrently is no longer undefined behaviour. Compiler optimisations and hardware shenanigans are (mostly) guaranteed to not ruin the object.  
+If memory accesses could be atomic, then they would align with our naive intuition of how memory should work, and provide a baseline on which to reason about memory concurrency. A memory write would just be a write, and a read just a read - no catches. Such a dream is granted by C++11's [`std::atomic`](https://en.cppreference.com/w/cpp/atomic/atomic). This type wraps another trivial type, for example `int`, and provides an interface with atomic semantics blessed by the Standard. If an object is `std::atomic`, then accessing it concurrently is no longer undefined behaviour. Compiler and hardware shenanigans are (mostly) guaranteed to not ruin attempts at using the object.  
 Hence, atomics are one of the "special conditions" mentioned earlier:
 
 > When a thread accesses a memory location and a different thread modifies the same memory location, a data race occurs unless:  
@@ -287,32 +302,30 @@ Hence, atomics are one of the "special conditions" mentioned earlier:
 > - **both conflicting evaluations are atomic operations**
 > - \[...\]
 
-Revisiting our previously-undefined-behaviour code example, it can be made well-defined via application of `std::atomic` to the shared data.
+Revisiting the previously-undefined-behaviour code example, it can be made well-defined via application of `std::atomic` to the shared data.
 
 ```c++
 // DEFINED BEHAVIOUR
 
 std::atomic<int> shared_data = 0;
 
-void read() {
+void read_data() {
     std::cout << shared_data.load() << std::endl;
 }
 
-void write() {
+void write_data() {
     shared_data.store(42);
 }
 
-int main() {
-    std::thread thread1{read};
-    std::thread thread2{write};
-}
+std::thread thread1{read_data};
+std::thread thread2{write_data};
 ```
 
-The C++ memory model has promising things to say about this code. `read()` cannot print some garbage value, nor crash the program, nor launch nuclear weapons. It can print either 0 or 42, depending on which of `thread1` or `thread2` happens to execute first.
+The C++ memory model has promising things to say about this code. `read_data()` cannot print some garbage value, nor crash the program, nor launch nuclear weapons. It can print either 0 or 42, depending on which of `thread1` or `thread2` happens to execute first.
 
 Now that we have regained the most basic memory access soundness with `std::atomic`, our discussion moves to the behaviours between many memory accesses.
 
-### Memory ordering
+### Memory order and visibility
 
 TODO
 
