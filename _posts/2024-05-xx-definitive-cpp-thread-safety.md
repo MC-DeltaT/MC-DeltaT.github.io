@@ -295,7 +295,7 @@ One problem we have established about memory accesses is that computers love to 
 The idea of an atomic operation is that of an operation which is fundamental and indivisible, either done completely or not at all. You can think of it as an operation which occurs at an infinitely small point in time. One nanosecond, nothing has happened, and the next, the operation is completed. No matter what you do, you cannot observe an atomic operation "in progress", nor force two of them to overlap in execution.
 
 If memory accesses could be atomic, then they would align with our naive intuition of how memory should work, and provide a baseline on which to reason about memory concurrency. A memory write would just be a write, and a read just a read - no catches. Such a dream is granted by C++11's [`std::atomic`](https://en.cppreference.com/w/cpp/atomic/atomic). This type wraps another trivial type, for example `int`, and provides an interface with atomic semantics blessed by the Standard. If an object is `std::atomic`, then accessing it concurrently is no longer undefined behaviour. Compiler and hardware shenanigans are (mostly) guaranteed to not ruin attempts at using the object.  
-Hence, atomics are one of the "special conditions" mentioned earlier:
+Hence, atomics are one of the "special conditions" mentioned earlier[3]:
 
 > When a thread accesses a memory location and a different thread modifies the same memory location, a data race occurs unless:  
 >
@@ -327,11 +327,92 @@ Now that we have regained the most basic memory access soundness with `std::atom
 
 ### Memory order and visibility
 
-TODO
+In the previous example, we saw the final value of `shared_data` can be different depending on which thread executes first. Such nondeterminism is a common occurrence in concurrent programs thanks to the various sources of memory access reordering we have learnt about. The order of memory accesses as written in source code likely doesn't match the order executed by hardware. Naturally, we have no hope in writing correct programs if order means naught. Hence, enter the next two foundational elements of the C++ memory model: memory ordering, and memory visibility.
 
-TODO: acquire-release semantics?
+Memory ordering encompasses rules regarding how memory accesses may or may not be reordered. Memory visibility is a closely related concept which describes how the effects of memory accesses are seen in other threads. For example, considering the following code, what combinations of values of `x` and `y` might another thread read?
 
-TODO: other memory orderings?
+```c++
+std::atomic<int> x = 0
+std::atomic<int> y = 0;
+
+x.store(10);
+y.store(20);
+```
+
+The first thing to know about memory ordering in C++ is there is no one "memory order", but a collection of rather complex rules. The programmer has some choice over how strict or relaxed they want the ordering to be via [`std::memory_order`](https://en.cppreference.com/w/cpp/atomic/memory_order). Read that link at your own risk: it's a rabbit hole of Standardese terms and cut-throat logic. To be quite honest, I do not fully understand all aspects of `std::memory_order`[^6].  
+Fortunately, the second thing to know about memory ordering in C++ is that in the sort of everyday C++ I would recommend you write, most of the complexities of memory ordering aren't relevant, and there are only a few scenarios to concern ourselves with.
+
+The ubiquitous memory ordering scenario is "acquire-release". In this scenario, one thread "releases" a memory resource for use, while another thread "acquires" it for consumption. Typically, an acquire is a memory read, while a release is a memory store. (If you have heard of the producer-consumer pattern, this is the memory ordering at play.) The critical aspect is the relationship between a release by one thread and a subsequent acquire by another thread, which forms a memory ordering. The C++ memory model says\[4\]:
+
+- If thread 1 performs a write `W` of value `V` to memory `M`, which is a release operation;
+- And thread 2 reads value `V` from `M`, which is an acquire operation;
+- Then thread 2 subsequently observes all memory access effects performed by thread 1 up to `W`.
+
+In other words, once thread 1 performs the release, it "signs off" on all previous memory operations. If another thread acquires that release, then it will see everything that was signed off. C++ calls this a "happens-before" relationship - memory access in thread 1 really do happen before and are observable by thread 2.  
+Happens-before is another special condition that escapes data races[3]:
+
+> When a thread accesses a memory location and a different thread modifies the same memory location, a data race occurs unless:  
+>
+> - \[...\]
+> - **one of the conflicting evaluations happens-before another**
+
+To illustrate acquire-release, consider this pseudocode:
+
+```c++
+int x = 0;
+int M = 0;
+
+void release_data() {
+    x = 42;
+    release_operation(M = 10);  // RELEASE
+}
+
+void acquire_data() {
+    if (acquire_operation(M) == 10) {   // ACQUIRE
+        std::cout << x << std::endl;
+    }
+}
+
+std::thread thread1{release_data};
+std::thread thread2{acquire_data};
+```
+
+(Note `acquire_operation()` and `release_operation()` are not real constructs, but represent the concept of an acquire and release operation, respectively. We will discuss real acquire/release functionality shortly.)
+
+What values of `x` might `thread2` print? If `thread2` acquires `M == 10`, then it *must* read `x == 42`, because that is the value released by `thread1`. It is not possible for 0 to be printed, nor any other value. However, it is possible for `thread2` to run before `thread1`, in which case `M == 0` will be acquired and nothing will be printed.
+
+`std::atomic` reads and writes are acquire and release operations. The above pseudocode can be made into valid C++ like so:
+
+```c++
+int x = 0;
+std::atomic<int> M = 0;
+
+void release_data() {
+    x = 42;
+    M.store(10);    // RELEASE
+}
+
+void acquire_data() {
+    if (M.load() == 10) {   // ACQUIRE
+        std::cout << x << std::endl;
+    }
+}
+
+std::thread thread1{release_data};
+std::thread thread2{acquire_data};
+```
+
+Notice that `x` need not be atomic, because the acquire-release memory ordering set up by the atomic `M` applies to all memory accesses, not just atomics.
+
+TODO: discuss mutex
+
+TODO: discuss sequential consistency
+
+[^6]: Amusingly, it seems many C++ experts are confused too, as `std::memory_order::consume` is discouraged from use while its specification is revised.
+
+TODO: discuss C++ synchronisation APIs: atomic, mutex, thread, fence, etc
+
+TODO: a note on volatile
 
 ## Practical examples
 
@@ -344,3 +425,5 @@ TODO: revisit code from the start
 \[2\] "The New C++: Lay down your guns, knives, and clubs", Gavin Clarke, https://www.theregister.com/2011/06/11/herb_sutter_next_c_plus_plus
 
 \[3\] "Multi-threaded executions and data races", https://en.cppreference.com/w/cpp/language/multithread
+
+\[4\] "`st::memory_order: Release-Acquire ordering", https://en.cppreference.com/w/cpp/atomic/memory_order#Release-Acquire_ordering
