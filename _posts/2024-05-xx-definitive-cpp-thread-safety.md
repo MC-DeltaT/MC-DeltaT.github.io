@@ -332,7 +332,7 @@ In the previous example, we saw the final value of `shared_data` can be differen
 Memory ordering encompasses rules regarding how memory accesses may or may not be reordered. Memory visibility is a closely related concept which describes how the effects of memory accesses are seen in other threads. For example, considering the following code, what combinations of values of `x` and `y` might another thread read?
 
 ```c++
-std::atomic<int> x = 0
+std::atomic<int> x = 0;
 std::atomic<int> y = 0;
 
 x.store(10);
@@ -404,15 +404,35 @@ std::thread thread2{acquire_data};
 
 Notice that `x` need not be atomic, because the acquire-release memory ordering set up by the atomic `M` applies to all memory accesses, not just atomics.
 
-TODO: discuss mutex
+Another classic construct which provides acquire-release semantics is a mutex, represented in C++ by [`std::mutex`](https://en.cppreference.com/w/cpp/thread/mutex). A mutex provides two operations, "lock" i.e. acquire, and "unlock" i.e. release, with the additional condition that only one thread may lock the mutex at any time. Memory access ordering is provided by mutexes even if the data is not `std::atomic`. We'll look at `std::mutex` more closely in a subsequent section.
 
-TODO: discuss sequential consistency
+In a suprisingly user-friendly twist, C++ tries to default to a memory ordering even stricter than acquire-release - a model called "sequential consistency for data-race-free programs". Under this model, when using `std::atomic`, not only does acquire-release ordering apply, but there is also a single ordering of all `std::atomic` memory accesses observed by all threads. Effectively, `std::atomic` by default behaves like our naive understanding of memory access, sans compiler optimisations and hardware trickery!  
+Going back to a previous example:
+
+```c++
+std::atomic<int> x = 0;
+std::atomic<int> y = 0;
+
+x.store(10);
+y.store(20);
+```
+
+When any other thread reads `x` and `y`, the only possible outcomes are:
+
+1. `x == y == 0`
+2. `x == 10`, `y == 0`
+3. `x == 10`, `y == 20`
+
+Since there is a single global ordering as written in the source code. (But of course another thread may still observe midway through the code, resulting in outcome 2.)  
+It is possible to modify the behaviour via `std::memory_order`, which can provide a small increase in memory access performance on some CPU architectures. But I **strongly** recommend you stay with the default, because sequential consistency is the safest and most intuitive option. For nearly all applications, the small performance improvement will not be worth the risk of incorrect code and subsequent time and mental health lost to debugging. Testament to sequential consistency's fundamental value is its adoption in the memory models of other programming languages such as Java, Go, and Rust.
 
 [^6]: Amusingly, it seems many C++ experts are confused too, as `std::memory_order::consume` is discouraged from use while its specification is revised.
 
 TODO: discuss C++ synchronisation APIs: atomic, mutex, thread, fence, etc
 
-TODO: a note on volatile
+### A note on volatile
+
+TODO
 
 ## Practical examples
 
@@ -426,4 +446,4 @@ TODO: revisit code from the start
 
 \[3\] "Multi-threaded executions and data races", https://en.cppreference.com/w/cpp/language/multithread
 
-\[4\] "`st::memory_order: Release-Acquire ordering", https://en.cppreference.com/w/cpp/atomic/memory_order#Release-Acquire_ordering
+\[4\] "std::memory_order: Release-Acquire ordering", https://en.cppreference.com/w/cpp/atomic/memory_order#Release-Acquire_ordering
