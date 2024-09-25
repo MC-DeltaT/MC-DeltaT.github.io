@@ -168,6 +168,8 @@ A fascinating aspect of modern CPU design is their knack for not executing instr
 Memory access instructions may be reordered too, if desirable for performance. This is interesting, since memory is an entity external to the CPU, and one core might not know what else is accessing memory. Obviously, arbitrarily reordering memory accesses will heavily influence the correctness of data communication between cores, i.e. thread safety. Arbitrary memory instruction ordering would probably be unusably chaotic. At the same time, performance goals pressure CPU design towards increased reordering.  
 CPU designers have some control over what "correctness" means by way of memory models. The memory model will define what memory access reorderings are possible, depending on the chosen tradeoff with performance. Compilers and CPU programmers must be aware of possible reorderings to ensure they use memory access instructions in an appropriate manner to produce the desired behaviour.
 
+TODO: fix note numbering
+
 [^2]: I have a more detailed introduction to out of order execution available [here](https://github.com/MC-DeltaT/cpu-performance-demos/tree/main/out-of-order-execution).
 
 ### Memory access alignment
@@ -253,7 +255,7 @@ Hopefully by now, you have a good idea of what is at play behind the scenes of t
 
 ### History and context
 
-C++ first standardised its memory model in C++11, over 25 years after the inception of the language. I might guess that it took so long, as many things do in C++, due to the huge variety of use cases and platforms on which it is run (although I have no evidence for this). Before C++11, the official language standard provided no guarantees on the behaviour of concurrent code. Of course people did write concurrent code before 2011, but correctness came from specific compilers and hardware platforms. That meant code you wrote that worked on one machine may not work on another, and C++ didn't care. The pre-C++11 standard dealt in terms of single threaded applications only.
+C++ first standardised its memory model in C++11, over 25 years after the inception of the language. I might guess that it took so long, as many things do in C++, due to the huge variety of use cases and platforms on which it is run (although I have no evidence for this). Before C++11, the official language standard provided no guarantees on the behaviour of concurrent code. Of course people did write concurrent code before 2011, but correctness came from specific compilers and hardware platforms. That meant code you wrote that worked on one machine may not work on another, and C++ didn't care. The pre-C++11 Standard dealt in terms of single threaded applications only.
 
 Naturally, it would be nice for the language to specify one way to go about concurrency which is efficient and portable across many systems, especially as multithreaded applications became more prevalent in consumer software. So with C++11, one official memory model was finally introduced.[2]
 
@@ -286,7 +288,7 @@ std::thread thread1{read_data};
 std::thread thread2{write_data};
 ```
 
-The reason C++ takes this stance is for performance. Thread safety is somewhat at odds with performance, and C++ loves to prioritise performance, so by default the compiler and hardware are allowed to go wild with optimisation. You may argue this approach is suboptimal, and you may be right - but you cannot deny the reality. If we want thread safety, we must force the compiler's hand.
+The probable reason C++ takes this stance is for performance. Thread safety is somewhat at odds with performance, and C++ loves to prioritise performance, so by default the compiler and hardware are allowed to go wild with optimisation. You may argue this approach is suboptimal, and you may be right - but you cannot deny the reality. If we want thread safety, we must force the compiler's hand.
 
 ### Atomics - a step towards sanity
 
@@ -381,7 +383,7 @@ std::thread thread2{acquire_data};
 
 What values of `x` might `thread2` print? If `thread2` acquires `M == 10`, then it *must* read `x == 42`, because that is the value released by `thread1`. It is not possible for 0 to be printed, nor any other value. However, it is possible for `thread2` to run before `thread1`, in which case `M == 0` will be acquired and nothing will be printed.
 
-`std::atomic` reads and writes are acquire and release operations. The above pseudocode can be made into valid C++ like so:
+`std::atomic` reads and writes are acquire and release operations, respectively. The above pseudocode can be made into valid C++ like so:
 
 ```c++
 int x = 0;
@@ -404,7 +406,7 @@ std::thread thread2{acquire_data};
 
 Notice that `x` need not be atomic, because the acquire-release memory ordering set up by the atomic `M` applies to all memory accesses, not just atomics.
 
-Another classic construct which provides acquire-release semantics is a mutex, represented in C++ by [`std::mutex`](https://en.cppreference.com/w/cpp/thread/mutex). A mutex provides two operations, "lock" i.e. acquire, and "unlock" i.e. release, with the additional condition that only one thread may lock the mutex at any time. Memory access ordering is provided by mutexes even if the data is not `std::atomic`. We'll look at `std::mutex` more closely in a subsequent section.
+Another classic construct which provides acquire-release semantics is a mutex, represented in C++ by [`std::mutex`](https://en.cppreference.com/w/cpp/thread/mutex). A mutex provides two operations, "lock" i.e. acquire, and "unlock" i.e. release, with the additional guarantee that only one thread has locked the mutex at any time (called "mutual exclusion"). Memory access ordering is provided by mutexes even if the data is not `std::atomic`. We'll look at `std::mutex` more closely in a later section.
 
 In a suprisingly user-friendly twist, C++ tries to default to a memory ordering even stricter than acquire-release - a model called "sequential consistency for data-race-free programs". Under this model, when using `std::atomic`, not only does acquire-release ordering apply, but there is also a single ordering of all `std::atomic` memory accesses observed by all threads. Effectively, `std::atomic` by default behaves like our naive understanding of memory access, sans compiler optimisations and hardware trickery!  
 Going back to a previous example:
@@ -423,16 +425,20 @@ When any other thread reads `x` and `y`, the only possible outcomes are:
 2. `x == 10`, `y == 0`
 3. `x == 10`, `y == 20`
 
-Since there is a single global ordering as written in the source code. (But of course another thread may still observe midway through the code, resulting in outcome 2.)  
-It is possible to modify the behaviour via `std::memory_order`, which can provide a small increase in memory access performance on some CPU architectures. But I **strongly** recommend you stay with the default, because sequential consistency is the safest and most intuitive option. For nearly all applications, the small performance improvement will not be worth the risk of incorrect code and subsequent time and mental health lost to debugging. Testament to sequential consistency's fundamental value is its adoption in the memory models of other programming languages such as Java, Go, and Rust.
+Since there is a single global ordering as written in the source code. (Of course another thread may still observe midway through the code, resulting in outcome 2.)  
+The behaviour may be modified via `std::memory_order`, which can provide a small increase in memory access performance on some CPU architectures. But I **strongly** recommend you stay with the default, because sequential consistency is the safest and most intuitive option. For nearly all applications, the small performance improvement will not be worth the risk of incorrect code and subsequent time and mental health lost to debugging. Testament to sequential consistency's fundamental value is its adoption in the memory models of other programming languages such as Java, Go, and Rust.
 
 [^6]: Amusingly, it seems many C++ experts are confused too, as `std::memory_order::consume` is discouraged from use while its specification is revised.
 
 TODO: discuss C++ synchronisation APIs: atomic, mutex, thread, fence, etc
 
-### A note on volatile
+### A note on `volatile`
 
-TODO
+Far too many sources claim thread safety can be achieved by declaring variables as `volatile`. This is theoretically and practically incorrect. To put it bluntly: `volatile` does not provide any inter-thread synchronisation, and attempting to use `volatile` to share data between threads is undefined behaviour.
+
+So what *does* `volatile` do? It effectively forces the compiler to generate a memory access instruction, even where the compiler may wish to not do so due to optimisation. While this guarantee might look promising for thread safety, note that this does not mitigate memory access trickery done by hardware - the memory access may still, for example, be reordered through out of order execution. `volatile` is intended to be used for [signal handlers](https://en.cppreference.com/w/cpp/utility/program/signal) and memory locations with special hardware side effects (e.g. microcontroller registers).
+
+Unfortunately, `volatile` may appear to work as a thread safety mechanism on platforms where the hardware memory model is generous. On the common x86 CPU architecture, memory access reorderings are limited, so a normal memory access instruction emitted from use of a `volatile` object can result in a functioning program. It is probably due to this fact that `volatile` has been proclaimed as a thread safety tool. However, the same code that works on x86 likely will not work on a different architecture, such as ARM, because that code invokes undefined behaviour. There is no reason to play with fire trying to use `volatile` rather than proper thread safety mechanisms on a modern compiler. Just use `std::atomic`, please!
 
 ## Practical examples
 
