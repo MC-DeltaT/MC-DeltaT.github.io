@@ -350,7 +350,7 @@ The ubiquitous memory ordering scenario is "acquire-release". In this scenario, 
 - And thread 2 reads value `V` from `M`, which is an acquire operation;
 - Then thread 2 subsequently observes all memory access effects performed by thread 1 up to `W`.
 
-In other words, once thread 1 performs the release, it "signs off" on all previous memory operations. If another thread acquires that release, then it will see everything that was signed off. C++ calls this a "happens-before" relationship - memory access in thread 1 really do happen before and are observable by thread 2.  
+In other words, once thread 1 performs the release, it "signs off" on all previous memory operations as safe to observe. If another thread acquires that release, then it will see everything that was signed off. C++ calls this a "happens-before" relationship - memory access in thread 1 really do happen before and are observable by thread 2.  
 Happens-before is another special condition that escapes data races[3]:
 
 > When a thread accesses a memory location and a different thread modifies the same memory location, a data race occurs unless:  
@@ -406,6 +406,24 @@ std::thread thread2{acquire_data};
 
 Notice that `x` need not be atomic, because the acquire-release memory ordering set up by the atomic `M` applies to all memory accesses, not just atomics.
 
+It's important to stress that the presence of acquire-release operations only safeguards memory accesses where the happens-before relationship exists, and does not preclude the possibility of other data races. For example, the following adjustment of our code creates a data race, because writing `x = 50` conflicts with reading `x` in the other thread:
+
+```c++
+// UNDEFINED BEHAVIOUR
+
+void release_data() {
+    x = 42;
+    M.store(10);    // RELEASE
+    x = 50;         // BAD
+}
+
+void acquire_data() {
+    if (M.load() == 10) {   // ACQUIRE
+        std::cout << x << std::endl;
+    }
+}
+```
+
 Another classic construct which provides acquire-release semantics is a mutex, represented in C++ by [`std::mutex`](https://en.cppreference.com/w/cpp/thread/mutex). A mutex provides two operations, "lock" i.e. acquire, and "unlock" i.e. release, with the additional guarantee that only one thread has locked the mutex at any time (called "mutual exclusion"). Memory access ordering is provided by mutexes even if the data is not `std::atomic`. We'll look at `std::mutex` more closely in a later section.
 
 In a suprisingly user-friendly twist, C++ tries to default to a memory ordering even stricter than acquire-release - a model called "sequential consistency for data-race-free programs". Under this model, when using `std::atomic`, not only does acquire-release ordering apply, but there is also a single ordering of all `std::atomic` memory accesses observed by all threads. Effectively, `std::atomic` by default behaves like our naive understanding of memory access, sans compiler optimisations and hardware trickery!  
@@ -429,6 +447,59 @@ Since there is a single global ordering as written in the source code. (Of cours
 The behaviour may be modified via `std::memory_order`, which can provide a small increase in memory access performance on some CPU architectures. But I **strongly** recommend you stay with the default, because sequential consistency is the safest and most intuitive option. For nearly all applications, the small performance improvement will not be worth the risk of incorrect code and subsequent time and mental health lost to debugging. Testament to sequential consistency's fundamental value is its adoption in the memory models of other programming languages such as Java, Go, and Rust.
 
 [^6]: Amusingly, it seems many C++ experts are confused too, as `std::memory_order::consume` is discouraged from use while its specification is revised.
+
+## C++ Synchronisation APIs
+
+At this point, we hopefully have a good understanding of the C++ memory model. Concurrent memory accesses cause data races and undefined behaviour, unless we take care to abide by memory ordering and visibility rules. The mechanisms on which we build thread safety are in general called "synchronisation" mechanisms. `std::atomic` is such a mechanism, which we have touched on already. In this section, we will discuss more synchronisation mechanisms provided by the C++ Standard Library.
+
+### `std::atomic`
+
+[`std::atomic`](https://en.cppreference.com/w/cpp/atomic/atomic) is the basic building block of thread safe memory access. As discussed earlier, it wraps a type and provide atomic memory access semantics. The wrapped type usually must be [TriviallyCopyable](https://en.cppreference.com/w/cpp/named_req/TriviallyCopyable): generally speaking, fundamental types (such as `int`, `float`, and pointers), and arrays and structs thereof. Complex types such as `std::vector` are not compatible, and require other sychronisation mechanisms. The reason is that atomicity is generally implemented via special CPU instructions which can only operate on primitive data types. However, as a reuslt of its primitiveness, `std::atomic` is often the cheapest synchronisation mechanism in terms of performance.
+
+`std::atomic` provides atomic [`load()`](https://en.cppreference.com/w/cpp/atomic/atomic/load) and [`store()`](https://en.cppreference.com/w/cpp/atomic/atomic/store) member functions for reading and writing. It also provides some atomic read-modify-write operations, which are handy for building higher-level synchronisation. For example, [`operator++()`](https://en.cppreference.com/w/cpp/atomic/atomic/operator_arith) is overloaded for integral `std::atomic` to atomically increment the contained value by 1.
+
+### `std::mutex`
+
+[`std::mutex`](https://en.cppreference.com/w/cpp/thread/mutex) is a ubiquitous synchronisation mechanism that provides acquire-release and mutual exclusion semantics. It is used to ensure that only one thread executes a section of code at a time, which is necessary when the data and code is more complex than can be managed with `std::atomic`.
+
+```c++
+std::vector<int> data;
+std::mutex mutex;
+
+void produce() {
+    mutex.lock();
+    data.push_back(10);
+    mutex.unlock();
+}
+
+void consume() {
+    mutex.lock();
+    if (!data.empty()) {
+        std::cout << data.front() << std::endl;
+    }
+    mutex.unlock();
+}
+
+std::thread thread1{produce};
+std::thread thread2{consume};
+```
+
+In the above example, an instance of `std::mutex` provides thread safety for a complex data type `std::vector`. `mutex.lock()` waits if the mutex is already locked, and also performs an acquire operation. `mutex.unlock()` performs a release operation and unlocks the mutex (allowing another thread to lock it). Thus memory ordering is achieved, and only one thread can modify `data` at any time.
+
+C++ provides variants of `std::mutex` which add features, such as [`std::timed_mutex`](https://en.cppreference.com/w/cpp/thread/timed_mutex) and [`std::recursive_mutex`](https://en.cppreference.com/w/cpp/thread/recursive_mutex).  
+Additionally, [`std::lock_guard`](https://en.cppreference.com/w/cpp/thread/lock_guard) and friends provide RAII wrappers to make locking and unlocking more foolproof.
+
+### `std::condition_variable`
+
+TODO
+
+### `std::counting_semaphore`
+
+TODO
+
+### `std::thread`
+
+TODO
 
 TODO: discuss C++ synchronisation APIs: atomic, mutex, thread, fence, etc
 
