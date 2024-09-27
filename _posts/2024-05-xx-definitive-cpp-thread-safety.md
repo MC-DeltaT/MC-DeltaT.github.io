@@ -508,18 +508,67 @@ std::thread thread2{consume};
 
 In the above example, an instance of `std::mutex` provides thread safety for a complex data type `std::vector`. `mutex.lock()` waits if the mutex is already locked, and also performs an acquire operation. `mutex.unlock()` performs a release operation and unlocks the mutex (allowing another thread to lock it). Thus memory ordering is achieved, and only one thread can modify `data` at any time.
 
-C++ provides variants of `std::mutex` which add features, such as [`std::timed_mutex`](https://en.cppreference.com/w/cpp/thread/timed_mutex) and [`std::recursive_mutex`](https://en.cppreference.com/w/cpp/thread/recursive_mutex).  
-Additionally, [`std::lock_guard`](https://en.cppreference.com/w/cpp/thread/lock_guard) and friends provide RAII wrappers to make locking and unlocking more foolproof.
+C++ provides variants of `std::mutex` which add features, such as [`std::timed_mutex`](https://en.cppreference.com/w/cpp/thread/timed_mutex) and [`std::recursive_mutex`](https://en.cppreference.com/w/cpp/thread/recursive_mutex).
+
+### `std::lock_guard` and friends
+
+C++ provides RAII wrappers to make locking and unlocking mutexes easier and safer.
+
+[`std::lock_guard`](https://en.cppreference.com/w/cpp/thread/lock_guard) is a simple wrapper whose constructor locks a mutex, and destructor unlocks the mutex. This avoids bugs where the mutex is not unlocked when the scope exits via `break`, `return`, or `throw`. You should always try to use `std::lock_guard` rather than lock/unlock the mutex manually, if possible.
+
+```c++
+std::mutex mutex;
+{
+    std::lock_guard lock{mutex};    // Lock
+    // ...
+}   // Unlock
+```
+
+[`std::unique_lock`](https://en.cppreference.com/w/cpp/thread/unique_lock) is like `std::lock_guard` but gives more control over locking and unlocking the mutex. Its main use is with `std::condition_variable`.
 
 ### `std::condition_variable`
 
-TODO
+[`std::condition_variable`](https://en.cppreference.com/w/cpp/thread/condition_variable) wraps an `std::mutex` to provide additional signalling. Particularly useful in a producer-consumer scenario, where the "producer" thread is writing to a shared variable, to be read and "consumed" by another thread. `std::condition_variable` enables the producer to "sign off" on its work and signal a consumer thread to acquire the data.
+
+As an example:
+
+```c++
+std::vector<int> data;
+std::mutex mutex;
+std::condition_variable cv;
+
+void produce() {
+    while (true) {
+        mutex.lock();       // Acquire
+        data.push_back(10); // Produce data
+        mutex.unlock();     // Release
+        cv.notify_one();    // Signal consumer
+    }
+}
+
+void consume() {
+    while (true) {
+        std::unique_lock lock{mutex};
+        cv.wait(lock, []{ return !data.empty(); }); // Wait and acquire
+        std::cout << data.front() << std::endl;     // Consume data
+        data.erase(data.begin());
+        // Mutex unlocked
+    }
+}
+
+std::thread thread1{produce};
+std::thread thread2{consume};
+```
+
+An notable quirk of `std::condition_variable` is the "spurious wakeup", where a thread waiting in `wait()` may wake up even though the data it's waiting for is not ready. The existence of spurious wakeups depends on implementation details on different platforms. As a result, we must explicitly check our expectation and wait again if necessary, enabled by the second argument of `wait()`.
 
 ### `std::counting_semaphore`
 
 TODO
 
-TODO: discuss C++ synchronisation APIs: atomic, mutex, thread, fence, etc
+### `std::barrier`
+
+TODO
 
 ### A note on `volatile`
 
