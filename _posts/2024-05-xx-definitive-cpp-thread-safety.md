@@ -87,6 +87,7 @@ std::thread consumer{[&] {
 }};
 ```
 
+// TODO: remove if we don't explain fence
 ```c++
 int data;
 bool ready = false;
@@ -366,11 +367,11 @@ int M = 0;
 
 void release_data() {
     x = 42;
-    release_operation(M = 10);  // RELEASE
+    release_operation(M = 10);  // Release
 }
 
 void acquire_data() {
-    if (acquire_operation(M) == 10) {   // ACQUIRE
+    if (acquire_operation(M) == 10) {   // Acquire
         std::cout << x << std::endl;
     }
 }
@@ -391,11 +392,11 @@ std::atomic<int> M = 0;
 
 void release_data() {
     x = 42;
-    M.store(10);    // RELEASE
+    M.store(10);    // Release
 }
 
 void acquire_data() {
-    if (M.load() == 10) {   // ACQUIRE
+    if (M.load() == 10) {   // Acquire
         std::cout << x << std::endl;
     }
 }
@@ -413,12 +414,12 @@ It's important to stress that the presence of acquire-release operations only sa
 
 void release_data() {
     x = 42;
-    M.store(10);    // RELEASE
+    M.store(10);    // Release
     x = 50;         // BAD
 }
 
 void acquire_data() {
-    if (M.load() == 10) {   // ACQUIRE
+    if (M.load() == 10) {   // Acquire
         std::cout << x << std::endl;
     }
 }
@@ -452,6 +453,27 @@ The behaviour may be modified via `std::memory_order`, which can provide a small
 
 At this point, we hopefully have a good understanding of the C++ memory model. Concurrent memory accesses cause data races and undefined behaviour, unless we take care to abide by memory ordering and visibility rules. The mechanisms on which we build thread safety are in general called "synchronisation" mechanisms. `std::atomic` is such a mechanism, which we have touched on already. In this section, we will discuss more synchronisation mechanisms provided by the C++ Standard Library.
 
+### `std::thread`
+
+[`std::thread`](https://en.cppreference.com/w/cpp/thread/thread) is a class which represents a thread of execution. We've seen it many times so far but haven't fully discussed its semantics. Constructing an `std::thread` instance with a function begins execution of that function concurrently in another thread; potentially, on another CPU core. The member function [`join()`](https://en.cppreference.com/w/cpp/thread/thread/join) makes the calling thread wait until the `std::thread` is done executing its function.
+
+Acquire-release semantics are provided on the constructor and `join()`. When constructing, memory accesses on the calling thread happen-before the new thread begins executing. And when calling `join()`, memory accesses in the new thread happen-before `join()` returns. For example:
+
+```c++
+int shared_data = 0;
+
+void thread_function() {
+    std::cout << shared_data << std::endl;
+    shared_data += 10;
+}
+
+int main() {
+    std::thread thread{thread_function};    // Synchronise
+    thread.join();                          // Wait and synchronise
+    std::cout << shared_data << std::endl;  // Prints 10
+}
+```
+
 ### `std::atomic`
 
 [`std::atomic`](https://en.cppreference.com/w/cpp/atomic/atomic) is the basic building block of thread safe memory access. As discussed earlier, it wraps a type and provide atomic memory access semantics. The wrapped type usually must be [TriviallyCopyable](https://en.cppreference.com/w/cpp/named_req/TriviallyCopyable): generally speaking, fundamental types (such as `int`, `float`, and pointers), and arrays and structs thereof. Complex types such as `std::vector` are not compatible, and require other sychronisation mechanisms. The reason is that atomicity is generally implemented via special CPU instructions which can only operate on primitive data types. However, as a reuslt of its primitiveness, `std::atomic` is often the cheapest synchronisation mechanism in terms of performance.
@@ -467,17 +489,17 @@ std::vector<int> data;
 std::mutex mutex;
 
 void produce() {
-    mutex.lock();
+    mutex.lock();           // Wait and acquire
     data.push_back(10);
-    mutex.unlock();
+    mutex.unlock();         // Release
 }
 
 void consume() {
-    mutex.lock();
+    mutex.lock();           // Wait and acquire
     if (!data.empty()) {
-        std::cout << data.front() << std::endl;
+        std::cout << data.front() << std::endl;     // Prints 10
     }
-    mutex.unlock();
+    mutex.unlock();         // Release
 }
 
 std::thread thread1{produce};
@@ -494,10 +516,6 @@ Additionally, [`std::lock_guard`](https://en.cppreference.com/w/cpp/thread/lock_
 TODO
 
 ### `std::counting_semaphore`
-
-TODO
-
-### `std::thread`
 
 TODO
 
