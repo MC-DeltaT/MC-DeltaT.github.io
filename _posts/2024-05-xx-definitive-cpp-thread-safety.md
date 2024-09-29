@@ -27,11 +27,11 @@ Some questions to consider, without judgement:
 int data;
 bool ready = false;
 
-std::thread producer{[&] {
+std::thread producer{[]{
     data = 42;
     ready = true;
 }};
-std::thread consumer{[&] {
+std::thread consumer{[]{
     if (ready) {
         std::cout << data;
     }
@@ -42,11 +42,11 @@ std::thread consumer{[&] {
 int data;
 std::atomic<bool> ready = false;
 
-std::thread producer{[&] {
+std::thread producer{[]{
     data = 42;
     ready = true;
 }};
-std::thread consumer{[&] {
+std::thread consumer{[]{
     if (ready) {
         std::cout << data;
     }
@@ -58,12 +58,12 @@ int data;
 bool ready = false;
 std::mutex mutex;
 
-std::thread producer{[&] {
+std::thread producer{[]{
     std::lock_guard lock{mutex};
     data = 42;
     ready = true;
 }};
-std::thread consumer{[&] {
+std::thread consumer{[]{
     std::lock_guard lock{mutex};
     if (ready) {
         std::cout << data;
@@ -74,31 +74,34 @@ std::thread consumer{[&] {
 ```c++
 int data;
 bool ready = false;
+std::mutex mutex;
+std::condition_variable cv;
 
-std::thread producer{[&] {
+std::thread producer{[]{
+    std::unique_lock lock{mutex};
+    data = 42;
+    ready = true;
+    lock.unlock();
+    cv.notify_one();
+}};
+
+std::thread consumer{[]{
+    std::unique_lock lock{mutex};
+    cv.wait(lock, []{ return ready; });
+    std::cout << data;
+}};
+```
+
+```c++
+int data;
+bool ready = false;
+
+std::thread producer{[]{
     data = 42;
     ready = true;
 }};
 producer.join();
-std::thread consumer{[&] {
-    if (ready) {
-        std::cout << data;
-    }
-}};
-```
-
-// TODO: remove if we don't explain fence
-```c++
-int data;
-bool ready = false;
-
-std::thread producer{[&] {
-    data = 42;
-    ready = true;
-    std::atomic_thread_fence(std::memory_order_release);
-}};
-std::thread consumer{[&] {
-    std::atomic_thread_fence(std::memory_order_acquire);
+std::thread consumer{[]{
     if (ready) {
         std::cout << data;
     }
@@ -445,7 +448,7 @@ When any other thread reads `x` and `y`, the only possible outcomes are:
 3. `x == 10`, `y == 20`
 
 Since there is a single global ordering as written in the source code. (Of course another thread may still observe midway through the code, resulting in outcome 2.)  
-The behaviour may be modified via `std::memory_order`, which can provide a small increase in memory access performance on some CPU architectures. But I **strongly** recommend you stay with the default, because sequential consistency is the safest and most intuitive option. For nearly all applications, the small performance improvement will not be worth the risk of incorrect code and subsequent time and mental health lost to debugging. Testament to sequential consistency's fundamental value is its adoption in the memory models of other programming languages such as Java, Go, and Rust.
+The behaviour may be modified via `std::memory_order`, which can provide a small increase in memory access performance on some CPU architectures. But I **strongly** recommend you stay with the default `std::memory_order::seq_cst`, because sequential consistency is the safest and most intuitive option. For nearly all applications, the small performance improvement will not be worth the risk of incorrect code and subsequent time and mental health lost to debugging. Testament to sequential consistency's fundamental value is its adoption in the memory models of other programming languages such as Java, Go, and Rust.
 
 [^6]: Amusingly, it seems many C++ experts are confused too, as `std::memory_order::consume` is discouraged from use while its specification is revised.
 
@@ -568,7 +571,7 @@ TODO
 
 ### `std::barrier`
 
-TODO
+[`std::barrier`](https://en.cppreference.com/w/cpp/thread/barrier) allows a set of threads to wait until they all reach the same point in the program. Entering the wait happens-before exiting the wait across all threads, thus providing synchronisation. This mechanism can be useful to synchronise different phases of parallel work which can't overlap. For example, threads might produce results which are subsequently read by other threads (in a many-to-many fashion), requiring synchronisation between all threads.
 
 ### A note on `volatile`
 
