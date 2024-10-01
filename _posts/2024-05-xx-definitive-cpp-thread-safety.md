@@ -348,21 +348,21 @@ y.store(20);
 The first thing to know about memory ordering in C++ is there is no one "memory order", but a collection of rather complex rules. The programmer has some choice over how strict or relaxed they want the ordering to be via [`std::memory_order`](https://en.cppreference.com/w/cpp/atomic/memory_order). Read that link at your own risk: it's a rabbit hole of Standardese terms and cut-throat logic. To be quite honest, I do not fully understand all aspects of `std::memory_order`[^6].  
 Fortunately, the second thing to know about memory ordering in C++ is that in the sort of everyday C++ I would recommend you write, most of the complexities of memory ordering aren't relevant, and there are only a few scenarios to concern ourselves with.
 
-The ubiquitous memory ordering scenario is "acquire-release". In this scenario, one thread "releases" a memory resource for use, while another thread "acquires" it for consumption. Typically, an acquire is a memory read, while a release is a memory store. (If you have heard of the producer-consumer pattern, this is the memory ordering at play.) The critical aspect is the relationship between a release by one thread and a subsequent acquire by another thread, which forms a memory ordering. The C++ memory model says\[4\]:
+The ubiquitous memory ordering scenario we must understand is "acquire-release". In this scenario, one thread "releases" a memory resource for use, while another thread "acquires" it for consumption. Typically, an acquire is a memory read, while a release is a memory write. (If you have heard of the producer-consumer pattern, this is the memory ordering at play.) The critical aspect is the relationship between a release by one thread and a subsequent acquire by another thread, which forms a memory ordering. The C++ memory model says\[4\]:
 
 - If thread 1 performs a write `W` of value `V` to memory `M`, which is a release operation;
 - And thread 2 reads value `V` from `M`, which is an acquire operation;
 - Then thread 2 subsequently observes all memory access effects performed by thread 1 up to `W`.
 
-In other words, once thread 1 performs the release, it "signs off" on all previous memory operations as safe to observe. If another thread acquires that release, then it will see everything that was signed off. C++ calls this a "happens-before" relationship - memory access in thread 1 really do happen before and are observable by thread 2.  
-Happens-before is another special condition that escapes data races[3]:
+In other words, once thread 1 performs the release, it "signs off" on all previous memory operations as safe to observe. If another thread acquires that release, then everything that was signed off will be visible. C++ calls this signing-off a "happens-before" relationship - memory access in thread 1 really do happen before and are observable by thread 2. Happens-before is another special condition that escapes data races[3]:
 
 > When a thread accesses a memory location and a different thread modifies the same memory location, a data race occurs unless:  
 >
 > - \[...\]
 > - **one of the conflicting evaluations happens-before another**
 
-To illustrate acquire-release, consider this pseudocode:
+In this manner, acquire-release becomes a foundational mechanism for safe sharing of arbitrary data between threads.  
+To illustrate, consider this pseudocode:
 
 ```c++
 int x = 0;
@@ -447,8 +447,8 @@ When any other thread reads `x` and `y`, the only possible outcomes are:
 2. `x == 10`, `y == 0`
 3. `x == 10`, `y == 20`
 
-Since there is a single global ordering as written in the source code. (Of course another thread may still observe midway through the code, resulting in outcome 2.)  
-The behaviour may be modified via `std::memory_order`, which can provide a small increase in memory access performance on some CPU architectures. But I **strongly** recommend you stay with the default `std::memory_order::seq_cst`, because sequential consistency is the safest and most intuitive option. For nearly all applications, the small performance improvement will not be worth the risk of incorrect code and subsequent time and mental health lost to debugging. Testament to sequential consistency's fundamental value is its adoption in the memory models of other programming languages such as Java, Go, and Rust.
+Since there is a single global ordering as written in the source code. Of course, another thread may still observe midway through the code, resulting in outcome 2. Note also that sequential consistency applies only to memory accesses done via `std::atomic`, and it does not preclude other sources of data races.  
+The behaviour may be modified with `std::memory_order`, which can provide a small increase in memory access performance on some CPU architectures. But I **strongly** recommend you stay with the default `std::memory_order::seq_cst`, because sequential consistency is the safest and most intuitive option. For nearly all applications, the small performance improvement will not be worth the risk of incorrect code and subsequent time and mental health lost to debugging. Testament to sequential consistency's fundamental value is its adoption in the memory models of other programming languages such as Java, Go, and Rust.
 
 [^6]: Amusingly, it seems many C++ experts are confused too, as `std::memory_order::consume` is discouraged from use while its specification is revised.
 
@@ -564,10 +564,6 @@ std::thread thread2{consume};
 ```
 
 An notable quirk of `std::condition_variable` is the "spurious wakeup", where a thread waiting in `wait()` may wake up even though the data it's waiting for is not ready. The existence of spurious wakeups depends on implementation details on different platforms. As a result, we must explicitly check our expectation and wait again if necessary, enabled by the second argument of `wait()`.
-
-### `std::counting_semaphore`
-
-TODO
 
 ### `std::barrier`
 
