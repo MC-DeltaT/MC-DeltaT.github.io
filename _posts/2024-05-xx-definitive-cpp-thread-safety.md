@@ -141,7 +141,7 @@ If you thought "no" or "unsure" to any of those questions, then read on and rest
 
 ### What Does Thread Safety Mean?
 
-"Thread safety" is about creating correct, robust software involving multiple "threads". Threads are separate sequences of code which might be executed at the same time on multiple processors. The topic of thread safety is an important one, since most of our computer systems today involve more than one processor. We've discovered that having multiple processors do things simultaneously is useful, since it means we can do more work in the same amount of real time.
+"Thread safety" is about creating correct, robust software involving multiple "threads". Threads are separate sequences of code which might be executed at the same time on multiple processors. The topic of thread safety is an important one, since most of our computer systems today involve more than one processor. We've discovered that having multiple processors do things simultaneously ("concurrency") is useful, since it means we can do more work in the same amount of real time.
 
 Any multithreaded software which does something interesting likely needs to move data in and out of threads. Thus the correctness of that software depends on the interactions between the threads and that shared data. A very simple C++ example may look like this:
 
@@ -166,15 +166,13 @@ int main() {
 
 One thread increments `shared_data`, while the other decrements it. If you run this code on a modern computer, there's a good chance the threads run at the same time, on different processors. And this is where the problems begin. On the surface, the code may appear innocuous, but if we really think about it, things get ambiguous. What does it mean for two processors to operate on data at the same time? What is a processor? What is "data"? What is "the same time"? What is actually going on inside the computer here? We can't make this code correct if we don't know what's happening, and that's why we need to talk about thread safety.
 
-### Approaching Thread Safety
+### Approaching Thread Safety - Memory Models
 
-TODO
+Successful thread safety is a two part game: first, you must understand the rules; then, you can conceive a strategy to produce a thread safe program. The critical part is understanding the rules, which will be the focus of this article. Intuition on how to use that knowledge to write thread safe code comes after, with practice.
 
-TODO: fix
+The rules of the thread safety game are known collectively as the "memory model". Formally, a memory model is a contract between the user and implementer of a computer system regarding concurrent data access. If code plays nicely with the memory model, we can reason about its behaviour and place assurances on its correctness. On the other hand, if code runs afoul of the memory model, it could exhibit unexpected behaviour. The code might not work at all, or it might only work on one type of computer.
 
-The framework which enables us to reason about these concurrency questions is called a "memory model". A memory model is a contract between the user and implementer of a computer system. Then, "thread safety" is about writing code which obeys the rules of a memory model. If code plays nicely with the memory model, we can reason about its behaviour and place assurances on its correctness - it is "thread safe" code. On the other hand, if code runs afoul of the memory model, it is not thread safe, and it could exhibit weird behaviour. The code might not work at all. Or it might work 95% of the time. Or it might always work but only on one type of computer.
-
-Understanding memory models is the key to writing thread safe code - such knowledge gives you the confidence to create concurrent programs knowing they will function as you desire. At the moment, memory models probably sound like a vague concept, which is in some part true. They are massive abstractions layered over mountains of complexity of computer systems. In order to understand them fully, we must take a trip through some of that complexity, from the bare metal up - only then can we face the C++ memory model with a truly holistic understanding.
+Different parts of computers have different memory models. Hardware has memory models, as do programming languages like C++. It is my belief that a holistic understanding of both is necessary for effective application of thread safety in C++.
 
 ## Memory Model - The Hardware Perspective
 
@@ -194,7 +192,7 @@ Cache works like a temporary buffer. When loading data from main memory, the dat
 
 But the existence of cache immediately raises problems for a CPU with multiple cores. The best performing cache is separate per core, due to circuit design complexity. However, if each core has a different cache, then cores could end up with different (cached) data for the same memory address! Data communication between cores could be ruined. This problem is known as "cache coherency", and it requires some thinking and deliberate design to solve. How it is solved factors into the memory model guaranteed to the CPU programmer.
 
-### Out of order execution
+### Out of Order Execution
 
 A fascinating aspect of modern CPU design is their knack for not executing instructions in the order the programmer specifies. Such design is known as "out of order execution" and came about to improve utilisation of available CPU resources, hence improving software performance. We won't dive into the complex details here, but the gist is that by reordering of instructions, throughtput is increased by finding an ordering which takes advantage of the free resources in the CPU at that time. Of course, the reordering must be done such that the correctness of the program is not affected.[^2]
 
@@ -205,7 +203,7 @@ TODO: fix note numbering
 
 [^2]: I have a more detailed introduction to out of order execution available [here](https://github.com/MC-DeltaT/cpu-performance-demos/tree/main/out-of-order-execution).
 
-### Memory access alignment
+### Memory Access Alignment
 
 In some CPU designs, the hardware can only directly access memory at memory addresses which are a multiple of the CPU's natural data size. For example, the CPU might like to deal in terms of 8 bytes, and can only fetch memory addresses that are a multiple of 8. We say these addresses are "aligned".[^3] Such a design is favourable for reducing complexity and improving efficiency of the circuit design.
 
@@ -216,7 +214,7 @@ Some CPU designs disallow unaligned accesses, but often in modern hardware, lack
 - Main memory technology and/or its connection to the CPU may only electrically support aligned accesses by design.
 - Cache is generally split into small chunks according to memory address, so accessing data which straddles two chunks may incur overhead or be disallowed.
 
-### Where's the memory model?
+### Where's the Memory Model?
 
 At this point, you may be eager for an in-depth explanation of a real hardware memory model, such as for the ubiquitous x86 architecture. However, we are not going to discuss that here. While understanding hardware motivations is important, I argue knowing specifics is counterproductive, because as high level language programmers we should be focusing on software memory models. It is easy to believe we understand the hardware memory model and that the buck stops there. In fact, on the x86 architecture, the topics we covered don't play as large a role in thread safety as you might think, because the hardware memory model is quite generous![^4] Yet some people will try to claim, for example, that cache coherency is the reason why you must use `std::atomic`.  
 What we really do need to know, and what should inform our decisions the most, is the programming language's memory model, which we will explore next.
@@ -231,7 +229,7 @@ Like a programming language's syntax defines what sequence of characters are leg
 
 [^5]: Some programming languages, particularly functional languages, do not have the concept of shared mutable memory. Thread safety is effectively "solved" in such languages.
 
-### Read-modify-write operations
+### Read-modify-write Operations
 
 Even with the friendliest hardware memory model with us, we can't guilelessly write correct programs when multiple threads are at play. Consider the case of incrementing an integer in memory, which a compiler might translate to this sequence of CPU instructions:
 
@@ -249,7 +247,7 @@ This is a classic "read-modify-write" operation and is the bread and butter of c
 
 We thought we incremented `M` twice, but actually ended up with `M=1`! This is because nothing stops the threads' execution from overlapping. This problem is in fact a very fundamental issue in any system where read-modify-write operations occur concurrently, from the small scale of one CPU, to the huge scale of the internet. Dealing with concurrent read-modify-writes is a core concern of writing correct concurrent software. Solutions depend on the scale and complexity of the concurrent operations, ranging from special CPU instructions to specific algorithm design.
 
-### Compiler optimisations
+### Compiler Optimisations
 
 Languages like C++ are liked in part for their runtime speed, which is assisted by the awesome optimisations done by compilers. Modern C/C++ compilers can be quite aggressive in rearranging source code into fast machine code. To paraphrase Herb Sutter in his memory model talk\[1\]: the compiler accepts our source code and gives us back the "code we meant to write" to yield optimal performance.
 
@@ -286,13 +284,13 @@ But wait - what if another thread was monitoring `result`? Before optimisation, 
 
 Hopefully by now, you have a good idea of what is at play behind the scenes of thread safety, and what motivates the existence of memory models. That means you are ready to tackle the tricky topic of the C++ memory model. Buckle up and get ready for some serious C++ knowledge.
 
-### History and context
+### History and Context
 
 C++ first standardised its memory model in C++11, over 25 years after the inception of the language. I might guess that it took so long, as many things do in C++, due to the huge variety of use cases and platforms on which it is run (although I have no evidence for this). Before C++11, the official language standard provided no guarantees on the behaviour of concurrent code. Of course people did write concurrent code before 2011, but correctness came from specific compilers and hardware platforms. That meant code you wrote that worked on one machine may not work on another, and C++ didn't care. The pre-C++11 Standard dealt in terms of single threaded applications only.
 
 Naturally, it would be nice for the language to specify one way to go about concurrency which is efficient and portable across many systems, especially as multithreaded applications became more prevalent in consumer software. So with C++11, one official memory model was finally introduced.[2]
 
-### C++11 memory model - overview
+### C++11 Memory Model - Overview
 
 As mentioned a few times so far, a memory model is a contract between a user and implementer. In the case of C++, the user is the programmer, and the implementer is the compiler plus CPU hardware. C++'s memory model specifies how a program may behave in scenarios where multiple threads are active. If you write C++ code with good understanding of the memory model, the compiler will make sure the program behaves how you intend. Otherwise, the program may not work as expected.
 
@@ -323,7 +321,7 @@ std::thread thread2{write_data};
 
 The probable reason C++ takes this stance is for performance. Thread safety is somewhat at odds with performance, and C++ loves to prioritise performance, so by default the compiler and hardware are allowed to go wild with optimisation. You may argue this approach is suboptimal, and you may be right - but you cannot deny the reality. If we want thread safety, we must force the compiler's hand.
 
-### Atomics - a step towards sanity
+### Atomics - A Step Towards Sanity
 
 One problem we have established about memory accesses is that computers love to jumble them around. For example, they might be split up, reordered, or outright removed. With memory being such a fundamental component in software, these facts leave us with disastrously shaky foundations on which to attempt to build programs. "Atomics" provide critical initial stabilisation to enable safe memory concurrency.
 
@@ -360,7 +358,7 @@ The C++ memory model has promising things to say about this code. `read_data()` 
 
 Now that we have regained the most basic memory access soundness with `std::atomic`, our discussion moves to the behaviours between many memory accesses.
 
-### Memory order and visibility
+### Memory Order and Visibility
 
 In the previous example, we saw the final value of `shared_data` can be different depending on which thread executes first. Such nondeterminism is a common occurrence in concurrent programs thanks to the various sources of memory access reordering we have learnt about. The order of memory accesses as written in source code likely doesn't match the order executed by hardware. Naturally, we have no hope in writing correct programs if order means naught. Hence, enter the next two foundational elements of the C++ memory model: memory ordering, and memory visibility.
 
@@ -542,7 +540,7 @@ In the above example, an instance of `std::mutex` provides thread safety for a c
 
 C++ provides variants of `std::mutex` which add features, such as [`std::timed_mutex`](https://en.cppreference.com/w/cpp/thread/timed_mutex) and [`std::recursive_mutex`](https://en.cppreference.com/w/cpp/thread/recursive_mutex).
 
-### `std::lock_guard` and friends
+### `std::lock_guard` and Friends
 
 C++ provides RAII wrappers to make locking and unlocking mutexes easier and safer.
 
@@ -598,7 +596,7 @@ An notable quirk of `std::condition_variable` is the "spurious wakeup", where a 
 
 [`std::barrier`](https://en.cppreference.com/w/cpp/thread/barrier) allows a set of threads to wait until they all reach the same point in the program. Entering the wait happens-before exiting the wait across all threads, thus providing synchronisation. This mechanism can be useful to synchronise different phases of parallel work which can't overlap. For example, threads might produce results which are subsequently read by other threads (in a many-to-many fashion), requiring synchronisation between all threads.
 
-### A note on `volatile`
+### A Note on `volatile`
 
 Far too many sources claim thread safety can be achieved by declaring variables as `volatile`. This is theoretically and practically incorrect. To put it bluntly: `volatile` does not provide any inter-thread synchronisation, and attempting to use `volatile` to share data between threads is undefined behaviour.
 
@@ -631,6 +629,8 @@ TODO
 TODO: revisit code from the start
 
 ## References
+
+TODO: convert all links to references
 
 \[1\] "atomic<> Weapons: The C++ Memory Model and Modern Hardware", Herb Sutter, https://herbsutter.com/2013/02/11/atomic-weapons-the-c-memory-model-and-modern-hardware/
 
