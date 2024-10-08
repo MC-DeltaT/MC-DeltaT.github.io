@@ -16,7 +16,7 @@ I consider thread safety to be one of the most misunderstood topics in C++, for 
 
 Without sounding too accusatory - because in large the problem is due to #1 -  there seems to be an alarming number of programmers who believe they understand thread safety, yet unknowingly have the gun a millimetre from their foot.
 
-Some questions to consider, without judgement:
+Some questions to consider:
 
 - Could you explain the terms "memory model", "data race", and "sequential consistency"?
 - Do you know how `std::mutex`, `std::atomic`, `std::memory_order` work and when they are necessary?  
@@ -140,8 +140,6 @@ int main() {
 (Warning: the above code is not valid.)
 
 On the surface, the code may appear straightforward enough, but if we really think about it, things gets ambiguous. What does it mean for two processors to operate on data at the same time? What is "data"? What is "the same time"?
-
-TODO: say more about memory model also being a framework for guiding concurrent code design. like driving a car to get to your destination
 
 The framework which enables us to reason about these concurrency questions is called a "memory model". A memory model is a contract between the user and implementer of a computer system. Then, "thread safety" is about writing code which obeys the rules of a memory model. If code plays nicely with the memory model, we can reason about its behaviour and place assurances on its correctness - it is "thread safe" code. On the other hand, if code runs afoul of the memory model, it is not thread safe, and it could exhibit weird behaviour. The code might not work at all. Or it might work 95% of the time. Or it might always work but only on one type of computer.
 
@@ -577,7 +575,25 @@ So what *does* `volatile` do? It effectively forces the compiler to generate a m
 
 Unfortunately, `volatile` may appear to work as a thread safety mechanism on platforms where the hardware memory model is generous. On the common x86 CPU architecture, memory access reorderings are limited, so a normal memory access instruction emitted from use of a `volatile` object can result in a functioning program. It is probably due to this fact that `volatile` has been proclaimed as a thread safety tool. However, the same code that works on x86 likely will not work on a different architecture, such as ARM, because that code invokes undefined behaviour. There is no reason to play with fire trying to use `volatile` rather than proper thread safety mechanisms on a modern compiler. Just use `std::atomic`, please!
 
-## Practical examples
+## Creating Thread Safe Software
+
+The C++ memory model is not trivial - how do we use our understanding of it to create thread safe software? There is no one-size-fits-all algorithm for writing safe concurrent code - after all, you can create arbitrarily complex logic - but there are some guiding principles which will help you.
+
+First, identify when the intricacies of the C++ memory model are relevant. When could there be a data race? When might the correctness of the program depend on memory ordering? Ask yourself the following questions:
+
+1. Does the code use more than one thread?
+2. Does the code share data or resources between threads? (This is almost certainly true if the program does anything useful.)
+3. Is shared data/resources written in one thread and read in another, or written in multiple threads?
+4. Is it possible for data/resource accesses in multiple threads to overlap? (This is probably true unless synchronisation mechanisms are already in use.)
+
+If the answer to all of those question is "yes", then you probably need to consider the C++ memory model and take action to avoid undefined behaviour. This is likely to be the case for any multithreaded program which does anything interesting. Remember that any scenario where multiple threads may potentially read and write the same memory at the same time could be undefined behaviour! If multiple threads are involved, you should be assume there is a data race unless proven otherwise.
+
+Once you have established that thread safety is a relevant concern, consider the shared data/resources and how they are accessed. What memory ordering and visibility guarantees do you need? What synchronisation mechanisms are required? Things can get arbitrarily tricky here depending on how complex your memory access patterns and program logic are. Determining what to do here will require some problem solving skills. Over time, as you become familiar with C++ synchronisation mechanisms, you will learn to pattern match concurrent problems to the appropriate synchronisation. Here are some points to consider which may help:
+
+- Can the code be presented as an acquire-release scenario? Look to the acquire-release semantics we discussed earlier.
+- How complex is the data/resources being shared? Can it simply be wrapped with `std::atomic`? Does it need wider mutual exclusion with `std::mutex`?
+- Do threads need to wait for some event to ensure correctness? Consider `std::condition_variable` or `std::barrier`.
+- If in doubt, think: what synchronisation is protecting this memory access from a data race?
 
 TODO: revisit code from the start
 
