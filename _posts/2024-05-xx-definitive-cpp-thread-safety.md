@@ -7,6 +7,10 @@ Particularly intimidating is thread safety in C++, where (as usual) it's left fo
 
 Are you one of the developers who quake at thread safety? Or perhaps, despite learning attempts, you never really "got" how to do it properly? This is the article for you. Today I am here to set the record straight on thread safety.
 
+## Quick Shout-out to Herb Sutter
+
+A lot of what I know about thread safety in C++ comes from a presentation by Herb Sutter called "atomic<> Weapons: The C++ Memory Model and Modern Hardware" \[1\]. The presentation is a wealth of information explained in a digestible and practical manner. A great watch, although it is three hours long. I present this article as an explanation which may be quicker to consume.
+
 ## Do You Really Know Thread Safety?
 
 I consider thread safety to be one of the most misunderstood topics in C++, for two reasons:
@@ -19,9 +23,10 @@ Without sounding too accusatory - because in large the problem is due to #1 -  t
 Some questions to consider:
 
 - Could you explain the terms "memory model", "data race", and "sequential consistency"?
-- Do you know how `std::mutex`, `std::atomic`, `std::memory_order` work and when they are necessary?  
-- Do you know how `volatile` relates to thread safety?  
-- Could you explain the behaviour of the following code snippets?
+- How does physical hardware influence thread safety?
+- Do you know how `std::mutex`, `std::atomic`, `std::memory_order` work and when they are necessary?
+- Do you know how `volatile` relates to thread safety?
+- Could you explain the behaviour (or misbehaviour) of the following code snippets?
 
 ```c++
 int data;
@@ -108,17 +113,37 @@ std::thread consumer{[]{
 }};
 ```
 
+```c++
+std::atomic<int> data;
+
+std::thread producer{[]{
+    ++data;
+}};
+producer.join();
+std::thread consumer{[]{
+    std::cout << data;
+}};
+```
+
+```c++
+std::atomic<int> data;
+
+std::thread producer{[]{
+    data = data + 1;
+}};
+producer.join();
+std::thread consumer{[]{
+    std::cout << data;
+}};
+```
+
 If you thought "no" or "unsure" to any of those questions, then read on and rest assured - let us share in a thread safety journey.
 
-## Quick Shout-out to Herb Sutter
+### What Does Thread Safety Mean?
 
-A lot of what I know about thread safety in C++ comes from a presentation by Herb Sutter called "atomic<> Weapons: The C++ Memory Model and Modern Hardware" \[1\]. The presentation is a wealth of information explained in a digestible and practical manner. A great watch, although it is three hours long. I present this article as an explanation which may be quicker to consume.
+"Thread safety" is about creating correct, robust software involving multiple "threads". Threads are separate sequences of code which might be executed at the same time on multiple processors. The topic of thread safety is an important one, since most of our computer systems today involve more than one processor. We've discovered that having multiple processors do things simultaneously is useful, since it means we can do more work in the same amount of real time.
 
-## What Is Thread Safety?
-
-Let's begin by solidifying what we mean by thread safety.
-
-In concurrent systems, there may be multiple processors performing operations at the same time on the same data. We say there are multiple "threads" of execution. In C++, that might look like this:
+Any multithreaded software which does something interesting likely needs to move data in and out of threads. Thus the correctness of that software depends on the interactions between the threads and that shared data. A very simple C++ example may look like this:
 
 ```c++
 int shared_data = 0;
@@ -139,7 +164,13 @@ int main() {
 
 (Warning: the above code is not valid.)
 
-On the surface, the code may appear straightforward enough, but if we really think about it, things gets ambiguous. What does it mean for two processors to operate on data at the same time? What is "data"? What is "the same time"?
+One thread increments `shared_data`, while the other decrements it. If you run this code on a modern computer, there's a good chance the threads run at the same time, on different processors. And this is where the problems begin. On the surface, the code may appear innocuous, but if we really think about it, things get ambiguous. What does it mean for two processors to operate on data at the same time? What is a processor? What is "data"? What is "the same time"? What is actually going on inside the computer here? We can't make this code correct if we don't know what's happening, and that's why we need to talk about thread safety.
+
+### Approaching Thread Safety
+
+TODO
+
+TODO: fix
 
 The framework which enables us to reason about these concurrency questions is called a "memory model". A memory model is a contract between the user and implementer of a computer system. Then, "thread safety" is about writing code which obeys the rules of a memory model. If code plays nicely with the memory model, we can reason about its behaviour and place assurances on its correctness - it is "thread safe" code. On the other hand, if code runs afoul of the memory model, it is not thread safe, and it could exhibit weird behaviour. The code might not work at all. Or it might work 95% of the time. Or it might always work but only on one type of computer.
 
@@ -594,6 +625,8 @@ Once you have established that thread safety is a relevant concern, consider the
 - How complex is the data/resources being shared? Can it simply be wrapped with `std::atomic`? Does it need wider mutual exclusion with `std::mutex`?
 - Do threads need to wait for some event to ensure correctness? Consider `std::condition_variable` or `std::barrier`.
 - If in doubt, think: what synchronisation is protecting this memory access from a data race?
+
+TODO
 
 TODO: revisit code from the start
 
