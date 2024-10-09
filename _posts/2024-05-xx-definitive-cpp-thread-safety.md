@@ -49,10 +49,10 @@ std::atomic<bool> ready = false;
 
 std::thread producer{[]{
     data = 42;
-    ready = true;
+    ready.store(true);
 }};
 std::thread consumer{[]{
-    if (ready) {
+    if (ready.load()) {
         std::cout << data;
     }
 }};
@@ -73,27 +73,6 @@ std::thread consumer{[]{
     if (ready) {
         std::cout << data;
     }
-}};
-```
-
-```c++
-int data;
-bool ready = false;
-std::mutex mutex;
-std::condition_variable cv;
-
-std::thread producer{[]{
-    std::unique_lock lock{mutex};
-    data = 42;
-    ready = true;
-    lock.unlock();
-    cv.notify_one();
-}};
-
-std::thread consumer{[]{
-    std::unique_lock lock{mutex};
-    cv.wait(lock, []{ return ready; });
-    std::cout << data;
 }};
 ```
 
@@ -114,26 +93,26 @@ std::thread consumer{[]{
 ```
 
 ```c++
-std::atomic<int> data;
+std::atomic<int> data = 0;
 
-std::thread producer{[]{
+std::thread thread1{[]{
+    data.store(data.load() + 1);
+}};
+std::thread thread2{[]{
+    data.store(data.load() + 1);
+    std::cout << data.load();
+}};
+```
+
+```c++
+std::atomic<int> data = 0;
+
+std::thread thread1{[]{
     ++data;
 }};
-producer.join();
-std::thread consumer{[]{
-    std::cout << data;
-}};
-```
-
-```c++
-std::atomic<int> data;
-
-std::thread producer{[]{
-    data = data + 1;
-}};
-producer.join();
-std::thread consumer{[]{
-    std::cout << data;
+std::thread thread2{[]{
+    ++data;
+    std::cout << data.load();
 }};
 ```
 
@@ -229,7 +208,7 @@ Like a programming language's syntax defines what sequence of characters are leg
 
 [^5]: Some programming languages, particularly functional languages, do not have the concept of shared mutable memory. Thread safety is effectively "solved" in such languages.
 
-### Read-modify-write Operations
+### Read-Modify-Write Operations
 
 Even with the friendliest hardware memory model with us, we can't guilelessly write correct programs when multiple threads are at play. Consider the case of incrementing an integer in memory, which a compiler might translate to this sequence of CPU instructions:
 
@@ -481,7 +460,7 @@ The behaviour may be modified with `std::memory_order`, which can provide a smal
 
 ## C++ Synchronisation APIs
 
-At this point, we hopefully have a good understanding of the C++ memory model. Concurrent memory accesses cause data races and undefined behaviour, unless we take care to abide by memory ordering and visibility rules. The mechanisms on which we build thread safety are in general called "synchronisation" mechanisms. `std::atomic` is such a mechanism, which we have touched on already. In this section, we will discuss more synchronisation mechanisms provided by the C++ Standard Library.
+At this point, we know concurrent memory accesses cause data races and undefined behaviour, unless we take care to abide by memory ordering and visibility rules. The mechanisms on which we build thread safety are in general called "synchronisation" mechanisms. `std::atomic` is such a mechanism, which we have touched on already. In this section, we will discuss more synchronisation mechanisms provided by the C++ Standard Library.
 
 ### `std::thread`
 
@@ -508,7 +487,8 @@ int main() {
 
 [`std::atomic`](https://en.cppreference.com/w/cpp/atomic/atomic) is the basic building block of thread safe memory access. As discussed earlier, it wraps a type and provide atomic memory access semantics. The wrapped type usually must be [TriviallyCopyable](https://en.cppreference.com/w/cpp/named_req/TriviallyCopyable): generally speaking, fundamental types (such as `int`, `float`, and pointers), and arrays and structs thereof. Complex types such as `std::vector` are not compatible, and require other sychronisation mechanisms. The reason is that atomicity is generally implemented via special CPU instructions which can only operate on primitive data types. However, as a reuslt of its primitiveness, `std::atomic` is often the cheapest synchronisation mechanism in terms of performance.
 
-`std::atomic` provides atomic [`load()`](https://en.cppreference.com/w/cpp/atomic/atomic/load) and [`store()`](https://en.cppreference.com/w/cpp/atomic/atomic/store) member functions for reading and writing. It also provides some atomic read-modify-write operations, which are handy for building higher-level synchronisation. For example, [`operator++()`](https://en.cppreference.com/w/cpp/atomic/atomic/operator_arith) is overloaded for integral `std::atomic` to atomically increment the contained value by 1.
+`std::atomic` provides atomic [`load()`](https://en.cppreference.com/w/cpp/atomic/atomic/load) and [`store()`](https://en.cppreference.com/w/cpp/atomic/atomic/store) member functions for reading and writing. There is an [implicit conversion from `std::atomic<T>` to `T`](https://en.cppreference.com/w/cpp/atomic/atomic/operator_T), and overloaded [`operator=`](https://en.cppreference.com/w/cpp/atomic/atomic/operator%3D) for convenience.  
+`std::atomic` also provides some atomic read-modify-write operations, which are handy for building higher-level synchronisation. For example, [`operator++()`](https://en.cppreference.com/w/cpp/atomic/atomic/operator_arith) is overloaded for integral `std::atomic` to atomically increment the contained value by 1.
 
 ### `std::mutex`
 
@@ -594,7 +574,7 @@ An notable quirk of `std::condition_variable` is the "spurious wakeup", where a 
 
 ### `std::barrier`
 
-[`std::barrier`](https://en.cppreference.com/w/cpp/thread/barrier) allows a set of threads to wait until they all reach the same point in the program. Entering the wait happens-before exiting the wait across all threads, thus providing synchronisation. This mechanism can be useful to synchronise different phases of parallel work which can't overlap. For example, threads might produce results which are subsequently read by other threads (in a many-to-many fashion), requiring synchronisation between all threads.
+[`std::barrier`](https://en.cppreference.com/w/cpp/thread/barrier) allows a set of threads to wait until they all reach the same point in the program. Entering the wait happens-before exiting the wait across all threads, thus providing synchronisation. This mechanism can be useful to synchronise different phases of parallel work which should not overlap. For example, threads might produce results which are subsequently read by other threads (in a many-to-many fashion), requiring synchronisation between all threads.
 
 ### A Note on `volatile`
 
@@ -602,31 +582,189 @@ Far too many sources claim thread safety can be achieved by declaring variables 
 
 So what *does* `volatile` do? It effectively forces the compiler to generate a memory access instruction, even where the compiler may wish to not do so due to optimisation. While this guarantee might look promising for thread safety, note that this does not mitigate memory access trickery done by hardware - the memory access may still, for example, be reordered through out of order execution. `volatile` is intended to be used for [signal handlers](https://en.cppreference.com/w/cpp/utility/program/signal) and memory locations with special hardware side effects (e.g. microcontroller registers).
 
-Unfortunately, `volatile` may appear to work as a thread safety mechanism on platforms where the hardware memory model is generous. On the common x86 CPU architecture, memory access reorderings are limited, so a normal memory access instruction emitted from use of a `volatile` object can result in a functioning program. It is probably due to this fact that `volatile` has been proclaimed as a thread safety tool. However, the same code that works on x86 likely will not work on a different architecture, such as ARM, because that code invokes undefined behaviour. There is no reason to play with fire trying to use `volatile` rather than proper thread safety mechanisms on a modern compiler. Just use `std::atomic`, please!
+Unfortunately, `volatile` may appear to work as a thread safety mechanism on platforms where the hardware memory model is generous. On the common x86 CPU architecture, memory access reorderings are limited, so a normal memory access instruction emitted from use of a `volatile` object can result in a functioning program. It is probably due to this fact that `volatile` has been proclaimed as a thread safety tool. However, the same code that works on x86 likely will not work on a different architecture, such as ARM, because that code invokes undefined behaviour. There is no reason to play with fire trying to use `volatile` rather than proper thread safety mechanisms on a modern compiler. `std::atomic` is the correct tool for the job here.
 
 ## Creating Thread Safe Software
 
-The C++ memory model is not trivial - how do we use our understanding of it to create thread safe software? There is no one-size-fits-all algorithm for writing safe concurrent code - after all, you can create arbitrarily complex logic - but there are some guiding principles which will help you.
+Hopefully by now, you have some understanding of the C++ memory model - the "rules" of the game that is thread safety. How do we take our understanding to create thread safe software? Unfortunately, there is no one-size-fits-all algorithm, just like there is no single algorithm for writing any code. Thread safety requires problem solving skills, which you will learn over time. In this section, we will discuss some pointers to get you headed in the right direction.
 
-First, identify when the intricacies of the C++ memory model are relevant. When could there be a data race? When might the correctness of the program depend on memory ordering? Ask yourself the following questions:
+A first step is to identify when the intricacies of the C++ memory model are relevant. When could there be a data race? When might the correctness of the program depend on memory ordering? Ask yourself the following questions:
 
 1. Does the code use more than one thread?
 2. Does the code share data or resources between threads? (This is almost certainly true if the program does anything useful.)
 3. Is shared data/resources written in one thread and read in another, or written in multiple threads?
 4. Is it possible for data/resource accesses in multiple threads to overlap? (This is probably true unless synchronisation mechanisms are already in use.)
 
-If the answer to all of those question is "yes", then you probably need to consider the C++ memory model and take action to avoid undefined behaviour. This is likely to be the case for any multithreaded program which does anything interesting. Remember that any scenario where multiple threads may potentially read and write the same memory at the same time could be undefined behaviour! If multiple threads are involved, you should be assume there is a data race unless proven otherwise.
+If the answer to all of those question is "yes", then you probably need to consider the C++ memory model and take action to ensure thread safety. This is likely the case for any multithreaded program which does anything interesting. Remember that any scenario where multiple threads may potentially read and write the same memory at the same time could be undefined behaviour!
 
-Once you have established that thread safety is a relevant concern, consider the shared data/resources and how they are accessed. What memory ordering and visibility guarantees do you need? What synchronisation mechanisms are required? Things can get arbitrarily tricky here depending on how complex your memory access patterns and program logic are. Determining what to do here will require some problem solving skills. Over time, as you become familiar with C++ synchronisation mechanisms, you will learn to pattern match concurrent problems to the appropriate synchronisation. Here are some points to consider which may help:
+Once you have established that thread safety is a relevant concern, consider the shared data/resources and how they are accessed. What memory ordering and visibility guarantees do you need? What synchronisation mechanisms are required? Things can get arbitrarily tricky here depending on how complex your memory access patterns and program logic are. Further, code free of data races can still be incorrect, depending on what behaviour you desire. Over time, as you become familiar with thread safety, you will learn to pattern match concurrency problems to the appropriate synchronisation. Here are some points to consider which may help:
 
 - Can the code be presented as an acquire-release scenario? Look to the acquire-release semantics we discussed earlier.
 - How complex is the data/resources being shared? Can it simply be wrapped with `std::atomic`? Does it need wider mutual exclusion with `std::mutex`?
 - Do threads need to wait for some event to ensure correctness? Consider `std::condition_variable` or `std::barrier`.
-- If in doubt, think: what synchronisation is protecting this memory access from a data race?
+- Will the code be correct if one thread runs before another, or vice-versa? What if the threads run simultaneously?
+
+The most important thing to remember is that by default, your multithreaded program is not thread safe. You must be able to prove, logically, based on the rules of the C++ memory model which we have learnt, that your code behaves how you want it to.
+
+## Example Solutions
+
+With our guidelines in mind for creating thread safe programs, let's break down the small code examples from the beginning of the article.
+
+### Example 1
+
+```c++
+// UNDEFINED BEHAVIOUR
+
+int data;
+bool ready = false;
+
+std::thread producer{[]{
+    data = 42;
+    ready = true;
+}};
+std::thread consumer{[]{
+    if (ready) {
+        std::cout << data;
+    }
+}};
+```
+
+In this example, there are two threads, `producer` and `consumer`. The two threads could run at the same time (there are no uses of `std::thread::join()`). The threads access the shared memory objects `data` and `ready`.  
+No memory accesses are atomic, and there is no other synchronisation, so the C++ memory model says this code has a data race and exhibits undefined behaviour.
+
+The checking of the `ready` variable is a red herring. It looks similar to an acquire-release scenario, but is not because there are no acquire nor release operations.
+
+### Example 2
+
+```c++
+// THREAD SAFE
+
+int data;
+std::atomic<bool> ready = false;
+
+std::thread producer{[]{
+    data = 42;
+    ready.store(true);  // Release
+}};
+std::thread consumer{[]{
+    if (ready.load()) { // Acquire
+        std::cout << data;
+    }
+}};
+```
+
+This code is the same as Example 1, but with acquire-release semantics added with `std::atomic`. `producer` writes to `data` then performs a release operation by writing to `ready`. This corresponds to the acquire operation performed by `consumer` when reading `ready`. If `consumer` reads `ready == true`, then it must observe the value of `data` that was written (happens-before relationship). `consumer` might also read `ready == false` (i.e. if it runs first), in which case it cannot access `data` yet. Hence, this code can print either nothing, or 42.
+
+The conditional check on the atomic variable `ready` done by `consumer` is critical. Without the check, `consumer` might read the non-atomic `data` at the same time `producer` writes to it, which would cause a data race.
+
+### Example 3
+
+```c++
+// THREAD SAFE
+
+int data;
+bool ready = false;
+std::mutex mutex;
+
+std::thread producer{[]{
+    std::lock_guard lock{mutex};    // Wait and acquire
+    data = 42;
+    ready = true;
+    // Unlock, release (automatic)
+}};
+std::thread consumer{[]{
+    std::lock_guard lock{mutex};    // Wait and acquire
+    if (ready) {
+        std::cout << data;
+    }
+    // Unlock, release (automatic)
+}};
+```
+
+Here, the use of `std::mutex` provides very strong guarantees on thread safety. The same shared data is present. Importantly, the shared data is only accessed after locking the mutex and before unlocking the mutex. That means the data cannot be accessed simultaneously, and there cannot be a data race. Additionally, and more technically, there is a release-acquire relationship between the mutex unlock by `producer` and the lock by `consumer`. This code can print either nothing or 42, depending on which thread locked `mutex` first.
+
+Note that `ready` is now only an indicator that `data` has been set, and does not provide any synchronisation.
+
+The use of a mutex in this toy example is probably overkill. As seen in Example 2, equivalent thread safety can be achieved with `std::atomic`.
+
+### Example 4
+
+```c++
+// THREAD SAFE
+
+int data;
+bool ready = false;
+
+std::thread producer{[]{
+    data = 42;
+    ready = true;
+}};
+producer.join();    // Wait
+std::thread consumer{[]{
+    if (ready) {
+        std::cout << data;
+    }
+}};
+```
+
+In this example, notice the `producer.join()` call. This delays the creation of the `consumer` thread until the `producer` thread is finished. Data is shared, but the threads can't run at the same time, so there is no data race. In technical terms, everything done by `producer` happens-before the call to `producer.join()` completes. `consumer` then reads the data written beforehand by `producer`. As a result, the code always prints 42.
+
+### Example 5
+
+```c++
+// NOT THREAD SAFE
+
+std::atomic<int> data = 0;
+
+std::thread thread1{[]{
+    data.store(data.load() + 1);    // Read, modify, write
+}};
+std::thread thread2{[]{
+    data.store(data.load() + 1);    // Read, modify, write
+    std::cout << data.load();
+}};
+```
+
+This example is tricky, because it looks reasonable yet is subtly wrong. There are two threads, both incrementing the same shared memory, `data`. The threads can run at the same time (no `std::thread::join()`). All memory acceses to `data` are atomic, so the C++ memory model says there is no data race. The code is well-defined according to the C++ memory model.
+
+However, it probably does not do what we want, because increment is a read-modify-write operation. As discussed earlier in the software memory model section, a read-modify-write can produce the wrong result when multiple threads execute it simultaneously. If we consider `thread1` and `thread2` running at the exact same time, then both will read 0, increment, then write 1. No synchronisation is present to prevent this behaviour.
+
+The possible outcomes of this code are:
+
+- Print 1 - `thread1` and `thread2` execute simultaneously;
+- Print 1 - `thread2` starts first;
+- Print 2 - `thread1` starts first.
+
+### Example 6
+
+```c++
+// THREAD SAFE
+
+std::atomic<int> data = 0;
+
+std::thread thread1{[]{
+    ++data;     // Atomic read-modify-write
+}};
+std::thread thread2{[]{
+    ++data;     // Atomic read-modify-write
+    std::cout << data.load();
+}};
+```
+
+Here, Example 5 is adjusted to be thread safe. The overloaded `operator++` of `std::atomic` performs `store(load() + 1)`, but atomically. The read-modify-write problem we examined is solved thanks to the magic of atomic semantics. The outcomes of the code are now:
+
+- Print 1 - `thread2` starts first;
+- Print 2 - `thread1` starts first.
+
+Note that for more complex shared data types (e.g. `std::vector`), `std::atomic` can't save us with its magic. The read-modify-write operation would have to synchronised with a mutex.
+
+## Real Producer-Consumer From Scratch
 
 TODO
 
-TODO: revisit code from the start
+## Further Reading
+
+TODO
 
 ## References
 
