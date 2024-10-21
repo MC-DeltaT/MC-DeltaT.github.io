@@ -59,13 +59,9 @@ TODO: link to further reading about CPUs
 
 ### Cache
 
-TODO: reword
+One thing to know about a computer's main memory is that it's slow. Well, not slow to us, but slow relative to the CPU, which has become significantly faster due to differences in the underlying technologies. To alleviate performance bottlenecks arising from slow memory accesses, CPUs got "cache": a faster, but limited, intermediate storage between the CPU logic and main memory. Cache works like a temporary buffer. When reading or writing data in memory, the CPU first accesses the cache, where the data can be made available very quickly. Only when necessary will main memory actually be accessed. With effective use, cache allows the CPU to operate at its peak performance, avoiding the need to wait for main memory accesses. Without cache, the performance of code using main memory (i.e., almost everything) is crippled.
 
-Over time, CPU operating speeds have significantly outpaced the performance of main memory in commodity systems due to difference in underlying technologies. To alleviate performance bottlenecks arising from slow memory accesses, CPUs got "cache": a faster, but limited, intermediate storage between the CPU logic and main memory.
-
-Cache works like a temporary buffer. When loading data from main memory, the data is put into the cache first. If the CPU reads the same memory address again later, the cache provides the data quickly, rather than waiting to load from memory again. When the CPU writes data, it first goes into the cache in case it needs to be read soon. If at any point the cache can't fit any more data, previous data is evicted. When utilised effectively, cache allows the CPU to operate at its peak performance, avoiding the need to wait for main memory accesses. Without cache, the performance of code using main memory (i.e., almost everything) is crippled.
-
-But the existence of cache immediately raises problems for a CPU with multiple cores. The best performing cache is separate per core, due to circuit design complexity. However, if each core has a different cache, then cores could end up with different (cached) data for the same memory address! Data communication between cores could be ruined. This problem is known as "cache coherency", and it requires some thinking and deliberate design to solve. How it is solved factors into the memory model guaranteed to the CPU programmer.
+But the existence of cache raises problems for a CPU with multiple cores. The best performing cache is separate per core, as this simplifies the electrical circuit design. However, if each core has a different cache, then cores could end up with different (cached) copies of the same memory! Data communication between cores could be ruined. This problem is known as "cache coherency", and it requires some thinking and deliberate design to solve. How it is solved factors into the memory model guaranteed to the CPU programmer. The designers might choose to make cache completely invisible to the programmer, or they could require particular instructions to ensure data is consistent across caches.
 
 ### Out of Order Execution
 
