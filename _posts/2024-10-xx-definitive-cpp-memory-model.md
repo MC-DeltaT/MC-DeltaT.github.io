@@ -65,11 +65,9 @@ But the existence of cache raises problems for a CPU with multiple cores. The be
 
 ### Out of Order Execution
 
-TODO: reword
+In the quest to make CPU cores as fast as possible, modern hardware has acquired a fascinating instruction execution technique called "out of order execution". With this design, the order in which instructions are executed may not be the same as the order as written by the programmer. We won't dive into the complex details here, but the gist is that by reordering of instructions, throughtput is increased by finding an ordering which takes advantage of the free resources in the CPU at that time. Of course, the reordering must be done such that the correctness of the program is not affected.[^2]
 
-A fascinating aspect of modern CPU design is their knack for not executing instructions in the order the programmer specifies. Such design is known as "out of order execution" and came about to improve utilisation of available CPU resources, hence improving software performance. We won't dive into the complex details here, but the gist is that by reordering of instructions, throughtput is increased by finding an ordering which takes advantage of the free resources in the CPU at that time. Of course, the reordering must be done such that the correctness of the program is not affected.[^2]
-
-Memory access instructions may be reordered too, if desirable for performance. This is interesting, since memory is an entity external to the CPU, and one core might not know what else is accessing memory. Obviously, arbitrarily reordering memory accesses will heavily influence the correctness of data communication between cores, i.e. thread safety. Arbitrary memory instruction ordering would probably be unusably chaotic. At the same time, performance goals pressure CPU design towards increased reordering.  
+Memory access instructions may be reordered too, if it is desirable for performance. Obviously, arbitrarily reordering memory accesses will heavily influence the correctness of data communication between cores, i.e. thread safety. Completely unrestricted memory instruction ordering would probably be unusably chaotic. At the same time, performance goals pressure CPU design towards increased reordering.  
 CPU designers have some control over what "correctness" means by way of memory models. The memory model will define what memory access reorderings are possible, depending on the chosen tradeoff with performance. Compilers and CPU programmers must be aware of possible reorderings to ensure they use memory access instructions in an appropriate manner to produce the desired behaviour.
 
 TODO: fix note numbering
