@@ -76,11 +76,9 @@ TODO: fix note numbering
 
 ### Memory Access Alignment
 
-TODO: reword
+In some CPU designs, the hardware can only directly access memory at addresses which are a multiple of some integer value. For example, the CPU might like to deal in terms of 8 bytes, and can only fetch memory addresses that are a multiple of 8. We say these addresses are "aligned".[^3] Such schemes can improve efficiency of the electrical circuit design.
 
-In some CPU designs, the hardware can only directly access memory at memory addresses which are a multiple of the CPU's natural data size. For example, the CPU might like to deal in terms of 8 bytes, and can only fetch memory addresses that are a multiple of 8. We say these addresses are "aligned".[^3] Such a design is favourable for reducing complexity and improving efficiency of the circuit design.
-
-Some CPU designs disallow unaligned accesses, but often in modern hardware, lack of alignment is permitted and handled by the CPU for convenience. Unfortunately, convenience usually comes at the cost of something. If memory can only be accessed in an aligned manner, then fulfilling an unaligned request requires piecing together data from multiple separate aligned accesses. The question arises of what happens if the data is changed by another core in between the two accesses? It's plausible we could get half old, half new data - gross. The memory model of the CPU will define what the behaviour is surrounding this scenario. Compilers and assembly writers might need to ensure all data is aligned correctly, or use special instructions to avoid the problem.
+Some CPUs disallow unaligned accesses, but often in modern hardware, lack of alignment is permitted and handled by the CPU for convenience. Unfortunately, convenience usually comes at the cost of something. If memory can only be accessed in an aligned manner, then fulfilling an unaligned request requires piecing together data from multiple separate aligned accesses. The question arises of what happens if the data is changed by another core in between the two accesses? It's possible we could get half old, half new data - gross. The memory model of the CPU will define the behaviour surrounding this scenario. Compilers and programmers might need to ensure data is aligned correctly, or use special instructions to avoid the problem.
 
 [^3]: I'm purposely using the word "memory" loosely here, referring to both main memory access and cache access. Similar issues arise for both:
 
